@@ -72,6 +72,13 @@ npm run tick
 Default path: `/our-days`, host port: `3016`. Verify that the port remains free
 before deployment. The database and `MEDIA_ROOT` must already be configured.
 
+For the existing shared-Postgres VM layout, `scripts/bootstrap.mjs` can create
+fresh dedicated roles, a database, scrypt-hashed pairing credentials and the
+read-only status configuration. It requires an explicit `--approve-new-secrets`
+flag and an HTTPS `OUR_DAYS_PUBLIC_URL`. It refuses to overwrite existing project
+secrets or claim existing roles. Pairing codes are saved privately under
+`~/.config/our-days-access.json`, never printed to logs or committed.
+
 ## Storage and deployment gates
 
 Never assume that `/data` is a mounted data disk. Check `findmnt -T /data` and
@@ -103,7 +110,8 @@ docker compose --profile jobs run --rm worker
    include the former in the existing TLS server, validate nginx and reload.
 2. Add a neutral, sign-in-only `/our-days` entry to site-index.
 3. Add a status HTTP check for `/our-days/api/health`, a read-only DB role and
-   freshness checks using `deploy/monitor.sql`. Add the status group label and
+   freshness checks using the content-free `service_health` view. The monitor
+   role is granted access only to this view, not the photo/story tables. Add the status group label and
    order, then rebuild the status web container.
 4. Merge the sample cron entry; do not replace crontab. Register the `our-days`
    heartbeat (warn after 5 minutes, fail after 15) in the status cron checks.
@@ -227,10 +235,24 @@ Never enable trust authentication for a production database.
 
 ## Backup and recovery
 
+`scripts/backup.mjs --run`, executed on the host under the same `flock` as the
+publication worker, creates an authenticated AES-256-GCM archive containing the
+database dump and private media. It briefly stops and then restarts the web
+container to prevent writes during the snapshot. It refuses to run with less
+than 1.6GiB free, validates decryption before accepting a backup, and retains
+the latest two snapshots under `/data/our-days-backups`.
+
+The encryption key is stored separately in `~/.config/our-days-backup.key`.
+Keep a separate secure copy of the key and original photos: **same-disk backups
+do not protect against disk or VM loss**. `decryptBackup` is exported from the
+script for supervised restores; do not extract unauthenticated partial output.
+This is an additional encrypted application backup; the shared host's existing
+database backup job also automatically includes the new database.
+
 Before real photos: take a database dump and an encrypted backup of the entire
 media directory while publication/uploads are paused, retain the original
 photos elsewhere, and restore both into an isolated environment. Preserve
 original file permissions and the same schema version. In a restored test
 environment keep `PUSH_ENABLED=false`, `AI_ENABLED=false` and publication paused.
-Invalidate restored sessions. Backup automation and a real-data restore drill
-must be completed as part of production deployment; they have not been run here.
+Invalidate restored sessions. Validate a restore into an isolated database before
+relying on the backup, and repeat the drill after importing real photographs.

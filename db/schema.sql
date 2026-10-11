@@ -95,5 +95,21 @@ CREATE TABLE IF NOT EXISTS ai_events (
 );
 CREATE INDEX IF NOT EXISTS editions_due ON editions(send_at) WHERE status='scheduled';
 CREATE INDEX IF NOT EXISTS imports_queued ON imports(created_at) WHERE status IN ('queued','processing');
+CREATE OR REPLACE VIEW service_health AS
+SELECT
+  (SELECT max(version) FROM schema_version) AS schema_version,
+  (SELECT last_tick FROM worker_state WHERE id=true) AS last_tick,
+  (SELECT error_code FROM worker_state WHERE id=true) AS worker_error,
+  (SELECT paused FROM settings WHERE id=true) AS paused,
+  (SELECT count(*)::int FROM imports WHERE status IN ('queued','processing')
+    AND created_at<now()-interval '10 minutes') AS stuck_imports,
+  (SELECT count(*)::int FROM editions,settings WHERE status='scheduled' AND NOT paused
+    AND send_at<now()-interval '15 minutes') AS missed_editions,
+  (SELECT count(*)::int FROM editions,settings WHERE status='scheduled'
+    AND day BETWEEN (now() AT TIME ZONE timezone)::date+1
+    AND (now() AT TIME ZONE timezone)::date+7) AS next_week_count,
+  (SELECT count(*)::int FROM deliveries d JOIN editions e ON e.id=d.edition_id
+    WHERE d.status IN ('failed','unknown','pending','sending')
+    OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention;
 INSERT INTO schema_version(version) VALUES (1) ON CONFLICT DO NOTHING;
 COMMIT;
