@@ -228,6 +228,34 @@ reconstructed from submission IDs. Tag-targeted broadcasts (`is_to_all=false`)
 do not enter the account's public historical-post list; that list is distinct
 from a recipient's chat history.
 
+## Alternative under evaluation: WeCom application via WeChat plugin
+
+Official WeCom documentation supports proactive image application messages to
+active **internal members** in the application's visible/licensed scope:
+<https://developer.work.weixin.qq.com/document/90000/90135/90236>.
+The ordinary-WeChat plugin can receive application messages:
+<https://open.work.weixin.qq.com/help2/pc/18121>.
+This is not external-customer messaging or a customer-service reply window.
+
+This candidate is **not yet verified for this operator's account**. Account
+registration/verification, application permissions, trusted IP requirements and
+member activation must be established with truthful information before adopting
+it. The recipient must be an application member and follow the WeChat plugin;
+being a personal WeChat friend or external customer is not sufficient. Do not
+use an employer's workspace, fabricate an organization or assume unverified
+personal registrations will be accepted.
+
+`scripts/wecom-image-probe.mjs DEMO.png --send-once` is a minimal manual probe.
+It expects exported private `WECOM_CORP_ID`, `WECOM_APP_SECRET`,
+`WECOM_AGENT_ID`, `WECOM_USER_ID` variables and `PUSH_ENABLED=false`. No credentials
+have been created for this route and it is not wired into the worker. It verifies
+an enabled application and active member, uploads a demo, and submits exactly
+one image to one member, without a fallback or automatic retry. Invalid or
+unlicensed recipient results fail explicitly even if `errcode` is zero.
+Acceptance is not receipt: verify the picture in **ordinary WeChat**, not only in
+the WeCom client, before changing the daily sender. Mock-only tests run with
+`node --test tests/wecom-probe.test.mjs`; they do not establish real eligibility.
+
 ## PushPlus alternative
 
 Set `PUSH_CHANNEL=pushplus`. Configure `PUSHPLUS_TOKEN`, the single recipient's
