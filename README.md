@@ -213,6 +213,12 @@ PG_HOST=127.0.0.1 PG_PORT=54326 PG_USER=postgres PG_DB=our_days_test \
   npm run test:integration
 ```
 
+  To exercise the actual non-root Docker web and worker images (including native
+  image/EXIF dependencies), build them as `our-days-web:local` and
+  `our-days-worker:local`, then set `OUR_DAYS_CONTAINER_TEST=true` on the same test
+  command. Both test containers are transient, share only synthetic fixtures and
+  connect to the guarded loopback test database.
+
 The runner clears only its named fixture tables in that guarded test database.
 For example, start an existing
 `postgres:16-alpine` image with a temporary in-memory data directory, trust auth,

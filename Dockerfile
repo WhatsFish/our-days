@@ -2,11 +2,13 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --cache /tmp/our-days-npm-cache --no-audit --no-fund \
+    && rm -rf /tmp/our-days-npm-cache
 
 FROM deps AS build
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS=--max-old-space-size=768
 RUN npm run build
 
 FROM deps AS worker

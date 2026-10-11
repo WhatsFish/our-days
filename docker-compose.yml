@@ -1,5 +1,6 @@
 services:
   web:
+    image: our-days-web:local
     build:
       context: .
       target: web
@@ -24,6 +25,7 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
   worker:
+    image: our-days-worker:local
     build:
       context: .
       target: worker

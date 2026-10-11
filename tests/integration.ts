@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, readdir, unlink, rmdir } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, unlink, rmdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -8,13 +8,14 @@ import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { pool, query } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
-import { tick } from "../src/lib/worker";
+import { tick as localTick } from "../src/lib/worker";
 import { zipFixture } from "./fixtures";
 
 if (process.env.PG_DB !== "our_days_test" || process.env.PG_HOST !== "127.0.0.1" || process.env.PG_PORT !== "54326") {
   throw new Error("Integration tests require the dedicated local our_days_test database on port 54326");
 }
 const media = await mkdtemp(path.join(tmpdir(), "our-days-synthetic-"));
+const containerTest = process.env.OUR_DAYS_CONTAINER_TEST === "true";
 const origin = "http://127.0.0.1:3316";
 const base = `${origin}/our-days`;
 Object.assign(process.env, {
@@ -24,7 +25,29 @@ Object.assign(process.env, {
   PUSH_ENABLED: "false", PUSH_CHANNEL: "wechat-test", AI_ENABLED: "false",
   WECHAT_VERIFY_TOKEN: "synthetic-verification", WECHAT_OPEN_ID: "synthetic-recipient",
 });
-const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "3316"], {
+const dockerEnvironment = [
+  "PG_HOST", "PG_PORT", "PG_USER", "PG_DB", "PUBLIC_URL", "ADMIN_PASSWORD_HASH", "READER_PASSWORD_HASH",
+  "MEDIA_QUOTA_MB", "PUSH_ENABLED", "PUSH_CHANNEL", "AI_ENABLED", "WECHAT_VERIFY_TOKEN", "WECHAT_OPEN_ID",
+].flatMap(key => ["--env", `${key}=${process.env[key]}`]);
+if (containerTest) await chmod(media, 0o777); // Only synthetic fixtures; container runs as UID 10001.
+const dockerOptions = [
+  "run", "--rm", "--network", "host", "--memory", "512m",
+  ...dockerEnvironment, "--env", "MEDIA_ROOT=/media", "--volume", `${media}:/media`,
+];
+async function tick() {
+  if (!containerTest) return localTick();
+  const worker = spawn("docker", [...dockerOptions, "our-days-worker:local"], { stdio: ["ignore", "pipe", "pipe"] });
+  let log = "";
+  worker.stdout.on("data", chunk => { log += chunk; });
+  worker.stderr.on("data", chunk => { log += chunk; });
+  await new Promise<void>((resolve, reject) => {
+    worker.once("error", reject);
+    worker.once("exit", code => code === 0 ? resolve() : reject(new Error(`Container tick failed: ${log}`)));
+  });
+}
+const server = spawn(containerTest ? "docker" : process.execPath, containerTest
+  ? [...dockerOptions, "--env", "PORT=3316", "--env", "HOSTNAME=127.0.0.1", "our-days-web:local"]
+  : ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "3316"], {
   env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" }, stdio: ["ignore", "pipe", "pipe"],
 });
 let output = "";
@@ -150,7 +173,7 @@ try {
   assert.equal(page.status, 200);
   assert.match(page.headers.get("x-robots-tag")!, /noindex/);
   assert.equal((await page.text()).includes("A synthetic letter"), false);
-  console.log("Integration passed: auth/CSRF, private media, EXIF stripping, ZIP safety, dedup, approval, scheduling, pause, concurrent ticks, immutable letters, favorites, callback, unknown delivery and logout.");
+  console.log(`${containerTest ? "Docker" : "Local"} integration passed: auth/CSRF, private media, EXIF stripping, ZIP safety, dedup, approval, scheduling, pause, concurrent ticks, immutable letters, favorites, callback, unknown delivery and logout.`);
 } catch (error) {
   console.error(output);
   throw error;
