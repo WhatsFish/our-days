@@ -219,6 +219,15 @@ month. Test-account exceptions must be verified for the actual account rather
 than inferred from a daily quota of 100 calls. Do not use preview endpoints,
 multiple accounts or rotating tags to bypass delivery limits.
 
+The signed callback handler separately stores `MASSSENDJOBFINISH` events from
+`mphelper` in `wechat_mass_receipts`, including `TotalCount`, `FilterCount`,
+`SentCount` and `ErrorCount`. A `send success` status with zero sent recipients
+must never be described as delivery. These counters are diagnostic, not human
+read receipts. Events received before this handler was deployed cannot be
+reconstructed from submission IDs. Tag-targeted broadcasts (`is_to_all=false`)
+do not enter the account's public historical-post list; that list is distinct
+from a recipient's chat history.
+
 ## PushPlus alternative
 
 Set `PUSH_CHANNEL=pushplus`. Configure `PUSHPLUS_TOKEN`, the single recipient's

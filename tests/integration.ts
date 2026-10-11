@@ -74,7 +74,7 @@ function callbackURL() {
 try {
   await pool.query(await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"));
   await pool.query(await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"));
-  await pool.query("TRUNCATE sessions,login_limits,photos,imports,settings,editions,deliveries,favorites,worker_state,ai_events,wechat_receipts CASCADE");
+  await pool.query("TRUNCATE sessions,login_limits,photos,imports,settings,editions,deliveries,favorites,worker_state,ai_events,wechat_receipts,wechat_mass_receipts CASCADE");
   await pool.query("INSERT INTO settings(id) VALUES(true)");
   let ready = false;
   for (let i = 0; i < 60; i++) {
@@ -93,6 +93,16 @@ try {
   assert.equal((await request("ai", admin, { id: randomUUID(), style: "温柔", consent: true })).status, 409);
   assert.equal((await fetch(`${callbackURL()}&echostr=sample`)).status, 200);
   assert.equal((await fetch(`${base}/api/wechat/callback?echostr=sample`)).status, 403);
+  const mass = `<xml><FromUserName>mphelper</FromUserName><MsgType>event</MsgType>
+    <Event>MASSSENDJOBFINISH</Event><MsgID>18446744073709551613</MsgID><Status>send success</Status>
+    <TotalCount>1</TotalCount><FilterCount>0</FilterCount><SentCount>0</SentCount><ErrorCount>0</ErrorCount></xml>`;
+  assert.equal((await fetch(callbackURL(), { method: "POST", body: mass })).status, 200);
+  assert.equal((await fetch(callbackURL(), { method: "POST", body: mass })).status, 200);
+  const massRows = await query<{ record_id: string; total_count: number; sent_count: number }>("SELECT * FROM wechat_mass_receipts");
+  assert.equal(massRows.length, 1);
+  assert.equal(massRows[0].record_id, "18446744073709551613");
+  assert.equal(massRows[0].total_count, 1);
+  assert.equal(massRows[0].sent_count, 0);
 
   const image = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#8a9d80" } })
     .withExif({ IFD0: { Artist: "SYNTHETIC ONLY" }, IFD2: { DateTimeOriginal: "2020:01:02 12:34:56" } }).jpeg().toBuffer();

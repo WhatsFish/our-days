@@ -27,10 +27,22 @@ export function parseWechatReceipt(xml: string) {
     throw new AppError(400, "wechat_xml", "无效微信回调");
   }
   const parsed = new XMLParser({ parseTagValue: false, processEntities: false }).parse(xml);
-  return z.object({ xml: z.object({
+  const receipt = z.object({ xml: z.object({
     FromUserName: z.string(), MsgType: z.string(), Event: z.string().optional(),
     MsgID: z.string().optional(), Status: z.string().optional(),
+    TotalCount: z.string().optional(), FilterCount: z.string().optional(),
+    SentCount: z.string().optional(), ErrorCount: z.string().optional(),
   }) }).parse(parsed).xml;
+  if (receipt.MsgType === "event" && receipt.Event === "MASSSENDJOBFINISH") {
+    const count = z.string().regex(/^\d{1,10}$/).refine(value => Number(value) <= 2147483647);
+    z.object({
+      FromUserName: z.literal("mphelper"),
+      MsgID: z.string().regex(/^\d{1,20}$/),
+      Status: z.string().min(1).max(100),
+      TotalCount: count, FilterCount: count, SentCount: count, ErrorCount: count,
+    }).parse(receipt);
+  }
+  return receipt;
 }
 
 let cached: { token: string; expires: number } | undefined;

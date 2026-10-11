@@ -69,3 +69,18 @@ test("snapshot excludes metadata/facts and works without external calls", async 
   assert.equal("facts" in snapshot, false);
   assert.equal("latitude" in snapshot, false);
 });
+test("mass receipts preserve filtering evidence and reject malformed counts or senders", () => {
+  const xml = `<xml><FromUserName>mphelper</FromUserName><MsgType>event</MsgType>
+    <Event>MASSSENDJOBFINISH</Event><MsgID>18446744073709551615</MsgID><Status>send success</Status>
+    <TotalCount>1</TotalCount><FilterCount>0</FilterCount><SentCount>0</SentCount><ErrorCount>0</ErrorCount></xml>`;
+  const receipt = parseWechatReceipt(xml);
+  assert.equal(receipt.MsgID, "18446744073709551615");
+  assert.equal(receipt.Status, "send success");
+  assert.equal(receipt.TotalCount, "1");
+  assert.equal(receipt.FilterCount, "0");
+  assert.equal(receipt.SentCount, "0");
+  assert.throws(() => parseWechatReceipt(xml.replace("mphelper", "unknown")));
+  assert.throws(() => parseWechatReceipt(xml.replace("<TotalCount>1", "<TotalCount>-1")));
+  assert.throws(() => parseWechatReceipt(xml.replace("<TotalCount>1", "<TotalCount>2147483648")));
+  assert.throws(() => parseWechatReceipt(xml.replace("<ErrorCount>0</ErrorCount>", "")));
+});

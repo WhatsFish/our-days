@@ -78,6 +78,15 @@ CREATE TABLE IF NOT EXISTS wechat_receipts (
   status text NOT NULL CHECK (status IN ('delivered','failed')),
   received_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS wechat_mass_receipts (
+  record_id text PRIMARY KEY,
+  status text NOT NULL,
+  total_count integer NOT NULL CHECK (total_count >= 0),
+  filter_count integer NOT NULL CHECK (filter_count >= 0),
+  sent_count integer NOT NULL CHECK (sent_count >= 0),
+  error_count integer NOT NULL CHECK (error_count >= 0),
+  received_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS worker_state (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   last_tick timestamptz,

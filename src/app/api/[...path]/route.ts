@@ -109,6 +109,13 @@ export async function POST(request: NextRequest, context: Context) {
     if (route === "wechat/callback") {
       verifyWechatSignature(request.nextUrl);
       const receipt = parseWechatReceipt((await boundedBody(request, 32 * 1024)).toString("utf8"));
+      if (receipt.MsgType === "event" && receipt.Event === "MASSSENDJOBFINISH") {
+        await query(
+          `INSERT INTO wechat_mass_receipts(record_id,status,total_count,filter_count,sent_count,error_count)
+           VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(record_id) DO NOTHING`,
+          [receipt.MsgID, receipt.Status, Number(receipt.TotalCount), Number(receipt.FilterCount),
+            Number(receipt.SentCount), Number(receipt.ErrorCount)]);
+      }
       if (receipt.FromUserName === process.env.WECHAT_OPEN_ID && receipt.MsgType === "event" &&
           receipt.Event === "TEMPLATESENDJOBFINISH" && receipt.MsgID && receipt.Status) {
         await query(
