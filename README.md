@@ -179,6 +179,29 @@ outside the allowed reply window; do not automatically retry or bypass it.
 The recipient can initiate a conversation to test the in-window presentation.
 API acceptance must still be confirmed on the recipient's phone.
 
+### Proactive mass-image probe
+
+`scripts/wechat-mass-probe.mjs IMAGE.png` validates a previously rendered
+synthetic PNG without sending. With `--send-once`, it uses the separate official
+`/cgi-bin/message/mass/sendall` API, never the customer-service API.
+
+Set `PROBE_STATE_FILE` to a new private, writable file path for each explicitly
+approved attempt. The script refuses to reuse an existing state file. It creates
+a temporary tag, verifies that the tag contains exactly the configured operator
+OpenID (including pagination), and sends only to that tag with `is_to_all=false`.
+It saves a 32-character idempotency key before submission and polls the returned
+task ID. It removes the tag after a terminal result; interrupted or still-pending
+tasks retain their tag and state for manual reconciliation, never automatic
+resubmission.
+
+A successful mass-image probe establishes availability of that API and message
+format. It does **not** establish an unlimited daily entitlement: API invocation
+quota and a recipient's possible monthly delivery limit are different rules.
+Formal service accounts normally allow four mass messages per recipient per
+month. Test-account exceptions must be verified for the actual account rather
+than inferred from a daily quota of 100 calls. Do not use preview endpoints,
+multiple accounts or rotating tags to bypass delivery limits.
+
 ## PushPlus alternative
 
 Set `PUSH_CHANNEL=pushplus`. Configure `PUSHPLUS_TOKEN`, the single recipient's
