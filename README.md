@@ -163,6 +163,22 @@ Account permission, template appearance, mobile-browser login and delivery after
 repurpose an unrelated production service template or use a test account as a
 promise of permanent production availability.
 
+## Direct image presentation probe
+
+`scripts/wechat-image-demo.mjs` renders an explicitly labelled illustrative
+card, not a real photograph or live weather report. By default it only renders
+and reports dimensions; `--output PATH` optionally saves the PNG. It needs
+Chinese fonts and a working Fontconfig configuration.
+
+An explicit `--send-once` uploads temporary image material and calls
+`/cgi-bin/message/custom/send` exactly once for the configured operator OpenID.
+Global `PUSH_ENABLED` must remain false during this manual probe. It is a
+customer-service message, **not** the template channel and **not** a daily
+proactive-image solution. WeChat error `45015` means the current recipient is
+outside the allowed reply window; do not automatically retry or bypass it.
+The recipient can initiate a conversation to test the in-window presentation.
+API acceptance must still be confirmed on the recipient's phone.
+
 ## PushPlus alternative
 
 Set `PUSH_CHANNEL=pushplus`. Configure `PUSHPLUS_TOKEN`, the single recipient's
