@@ -194,6 +194,23 @@ task ID. It removes the tag after a terminal result; interrupted or still-pendin
 tasks retain their tag and state for manual reconciliation, never automatic
 resubmission.
 
+For an explicitly approved burst test, `--send-five` sends at most five numbered
+cards to the **same** single-recipient tag, waits at least 60 seconds after each
+successful task before starting the next, and stops on any rejection or
+unconfirmed result. It neither retries failed submissions nor rotates recipient
+tags to work around a limit. It records every message ID and timestamp and exits
+after the bounded batch; it does not install a recurring schedule.
+
+Status-query quotas are independent of sending quotas. The default probe waits
+30 seconds before querying and makes at most two status queries per message.
+`--submission-only` explicitly disables result polling; accepted tasks must not
+be labelled delivered. If polling was throttled **after a recorded acceptance**,
+`--send-five --resume-accepted --submission-only` can continue only the unsent
+remainder of that same five-message state file and same recipient tag. It
+refuses unknown/rejected submissions and does not resend previously accepted
+messages. Tags remain until pending results are reconciled or phone receipt is
+confirmed. This mode does not reset, evade or increase any platform quota.
+
 A successful mass-image probe establishes availability of that API and message
 format. It does **not** establish an unlimited daily entitlement: API invocation
 quota and a recipient's possible monthly delivery limit are different rules.
