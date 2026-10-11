@@ -1,0 +1,51 @@
+services:
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PG_HOST: db
+      PG_USER: our_days
+      PG_DB: our_days
+      MEDIA_ROOT: /media
+    ports:
+      - "127.0.0.1:3016:3000"
+    volumes:
+      - type: bind
+        source: ${OUR_DAYS_DATA_DIR:?Set OUR_DAYS_DATA_DIR to a verified persistent directory}
+        target: /media
+        bind:
+          create_host_path: false
+    mem_limit: 512m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+  worker:
+    build:
+      context: .
+      target: worker
+    profiles: [jobs]
+    env_file: .env
+    environment:
+      PG_HOST: db
+      PG_USER: our_days
+      PG_DB: our_days
+      MEDIA_ROOT: /media
+    volumes:
+      - type: bind
+        source: ${OUR_DAYS_DATA_DIR:?Set OUR_DAYS_DATA_DIR to a verified persistent directory}
+        target: /media
+        bind:
+          create_host_path: false
+    mem_limit: 512m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+networks:
+  default:
+    name: traffic-monitor_default
+    external: true

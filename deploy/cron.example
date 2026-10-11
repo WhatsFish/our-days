@@ -1,0 +1,2 @@
+# Merge after deployment verification. Never replace the user's crontab.
+* * * * * /usr/bin/flock -n /home/liharr/.local/share/cron-heartbeats/our-days.lock /bin/bash /home/liharr/src/our-days/scripts/run-tick.sh >>/home/liharr/src/our-days/worker.log 2>&1 && touch /home/liharr/.local/share/cron-heartbeats/our-days

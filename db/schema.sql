@@ -1,0 +1,99 @@
+BEGIN;
+CREATE TABLE IF NOT EXISTS schema_version (version integer PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash text PRIMARY KEY,
+  role text NOT NULL CHECK (role IN ('admin','reader')),
+  expires_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_limits (
+  bucket text PRIMARY KEY,
+  started_at timestamptz NOT NULL DEFAULT now(),
+  attempts integer NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS photos (
+  id uuid PRIMARY KEY,
+  sha256 text NOT NULL UNIQUE,
+  original_ext text NOT NULL,
+  original_bytes bigint NOT NULL,
+  captured_raw text,
+  latitude double precision,
+  longitude double precision,
+  date_label text NOT NULL DEFAULT '',
+  place_label text NOT NULL DEFAULT '',
+  facts text NOT NULL DEFAULT '',
+  caption text NOT NULL DEFAULT '',
+  approved boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS imports (
+  id uuid PRIMARY KEY,
+  ext text NOT NULL CHECK (ext IN ('zip','image')),
+  status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','processing','done','failed')),
+  added integer NOT NULL DEFAULT 0,
+  duplicates integer NOT NULL DEFAULT 0,
+  errors jsonb NOT NULL DEFAULT '[]',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS settings (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  timezone text NOT NULL DEFAULT 'Asia/Shanghai',
+  send_time text NOT NULL DEFAULT '08:00',
+  paused boolean NOT NULL DEFAULT true,
+  weather_lat double precision,
+  weather_lon double precision,
+  weather_city text NOT NULL DEFAULT '',
+  almanac boolean NOT NULL DEFAULT true,
+  star_note text NOT NULL DEFAULT ''
+);
+INSERT INTO settings(id) VALUES (true) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS editions (
+  id uuid PRIMARY KEY,
+  day date NOT NULL UNIQUE,
+  photo_id uuid NOT NULL REFERENCES photos(id),
+  title text NOT NULL,
+  send_at timestamptz NOT NULL,
+  notify boolean NOT NULL DEFAULT false,
+  status text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','published','cancelled')),
+  snapshot jsonb,
+  published_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((status='published') = (snapshot IS NOT NULL AND published_at IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS deliveries (
+  id uuid PRIMARY KEY,
+  edition_id uuid NOT NULL UNIQUE REFERENCES editions(id),
+  channel text NOT NULL CHECK (channel IN ('wechat-test','pushplus')),
+  status text NOT NULL CHECK (status IN ('pending','sending','accepted','delivered','failed','unknown','disabled')),
+  record_id text,
+  error_code text,
+  attempts integer NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS favorites (
+  edition_id uuid PRIMARY KEY REFERENCES editions(id)
+);
+CREATE TABLE IF NOT EXISTS wechat_receipts (
+  record_id text PRIMARY KEY,
+  status text NOT NULL CHECK (status IN ('delivered','failed')),
+  received_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS worker_state (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  last_tick timestamptz,
+  error_code text
+);
+CREATE TABLE IF NOT EXISTS ai_events (
+  id uuid PRIMARY KEY,
+  provider text NOT NULL,
+  model text NOT NULL,
+  input_tokens integer,
+  output_tokens integer,
+  cost_usd numeric,
+  status text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS editions_due ON editions(send_at) WHERE status='scheduled';
+CREATE INDEX IF NOT EXISTS imports_queued ON imports(created_at) WHERE status IN ('queued','processing');
+INSERT INTO schema_version(version) VALUES (1) ON CONFLICT DO NOTHING;
+COMMIT;
