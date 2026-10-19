@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
 import type { PublicAI } from "../lib/ai-config";
-import { captureLabel } from "../lib/photo-metadata";
 import { UploadPanel } from "./upload-panel";
+import { PhotoLibrary } from "./photo-library";
+import { aiPricing, GLM_FLASH_MODEL } from "../lib/ai-policy";
 import type { OperatorCounts, Resources } from "../lib/operator-status";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
 type Delivery = { id: string; edition_id: string; day: string; status: string; error_code: string | null; attempts: number };
 type Dashboard = {
-  photos: Photo[]; editions: Edition[]; imports: ImportJob[]; deliveries: Delivery[];
+  editions: Edition[]; imports: ImportJob[]; deliveries: Delivery[];
   settings: Settings; worker: { last_tick: string | null; error_code: string | null } | null;
   bytes: number; quotaMb: number; pushEnabled: boolean; pushReady: boolean; pushChannel: string; aiEnabled: boolean; aiCost: string;
   ai: PublicAI;
@@ -51,6 +52,7 @@ export function Workspace() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const refresh = useCallback(async (current: Role) => {
     if (!current) return;
     const rows = await api<Edition[]>("editions");
@@ -118,9 +120,9 @@ export function Workspace() {
         </div>
         {tab === "status" && <OperatorStatus dashboard={dashboard} />}
         {tab === "library" && <>
-          <section className="card">
-            <h2>待发送队列 · {dashboard.stats.ready} 张</h2>
-            <p className="muted">FIFO：按入库时间排序，每天取一张已确认、未使用素材。以下最多显示前 100 张；不会自动重复发送。待确认：{dashboard.stats.unreviewed} 张。</p>
+          <details className="card">
+            <summary>待发送 {dashboard.stats.ready} 张 · 下一张：{dashboard.queue[0]?.date_label || (dashboard.queue.length ? "未填写日期" : "无")} · 待确认 {dashboard.stats.unreviewed} 张 · 展开队列</summary>
+            <p className="muted">按入库时间排序，每天取一张已确认、未使用素材。最多显示前 100 张，不会自动重复发送。</p>
             {!dashboard.queue.length && <p>队列为空。</p>}
             <div className="table-scroll"><table className="admin-table"><thead><tr><th>顺序</th><th>照片</th><th>拍摄时间 / 地点</th><th>推送文案</th><th>操作</th></tr></thead>
               <tbody>{dashboard.queue.map((photo, index) => <tr key={photo.id}>
@@ -128,14 +130,13 @@ export function Workspace() {
                 <td><img className="mini" src={`${base}/api/media/${photo.id}/thumb`} alt="" /></td>
                 <td>{photo.date_label || "未填写"}<br />{photo.place_label || "未填写"}</td>
                 <td>{photo.caption.slice(0, 80)}{photo.caption.length > 80 ? "…" : ""}</td>
-                <td><a href={`#photo-${photo.id}`}>编辑</a></td>
+                <td><button className="quiet" onClick={() => setSelectedPhoto(photo.id)}>编辑</button></td>
               </tr>)}</tbody></table></div>
-          </section>
-          <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
-          <h2>素材列表 · 共 {dashboard.stats.photos} 张</h2>
-          {!dashboard.photos.length && <p className="empty">暂无照片。</p>}
-          <div className="photo-grid">{dashboard.photos.map(photo => <PhotoEditor key={photo.id} photo={photo} busy={busy}
-            aiEnabled={dashboard.aiEnabled} perform={perform} />)}</div>
+          </details>
+          <details className="card upload-disclosure"><summary>上传照片 / ZIP</summary>
+            <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
+          </details>
+          <PhotoLibrary aiEnabled={dashboard.aiEnabled} revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} />
         </>}
         {tab === "history" && <SendHistory dashboard={dashboard} busy={busy} perform={perform} />}
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
@@ -158,7 +159,7 @@ function ResourcePanel({ dashboard: d }: { dashboard: Dashboard }) {
       <tr><th>主机物理内存 / 空闲</th><td>{memory(r.hostMemoryTotal)} / {memory(r.hostMemoryFree)}（空闲值不含可回收缓存）</td></tr>
       <tr><th>照片文件 / 配额</th><td>{memory(d.bytes)} / {d.quotaMb} MiB</td></tr>
       <tr><th>照片所在磁盘可用 / 总量</th><td>{(r.diskFree / 1024 ** 3).toFixed(2)} / {(r.diskTotal / 1024 ** 3).toFixed(2)} GiB（共享文件系统，不是独占空间）</td></tr>
-      <tr><th>AI 本月已知费用估算 / 预留</th><td>USD {Number(d.aiCost).toFixed(4)}{d.aiUnknownCost > 0 ? `；另有 ${d.aiUnknownCost} 次费用未知，仅记录 token 用量` : ""}</td></tr>
+      <tr><th>AI 本月费用估算 / 预留</th><td>¥{Number(d.aiCost).toFixed(4)} / ¥100{d.aiUnknownCost > 0 ? `；另有 ${d.aiUnknownCost} 次费用未知，生成已暂停` : ""}</td></tr>
     </tbody></table>
     <p className="muted">内存上限与照片配额是部署参数，不在网页里调整。磁盘容量与照片配额是两个独立限制。</p>
   </section>;
@@ -187,84 +188,6 @@ function OperatorStatus({ dashboard: d }: { dashboard: Dashboard }) {
     <ResourcePanel dashboard={d} />
     <p className="muted">状态页每 30 秒刷新。</p>
   </section>;
-}
-
-function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: boolean; aiEnabled: boolean; perform: Perform }) {
-  const [preview, setPreview] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [consent, setConsent] = useState(false);
-  const [style, setStyle] = useState("温柔");
-  const [placeDraft, setPlaceDraft] = useState(photo.place_label || photo.metadata_place || "");
-  const [placeSource, setPlaceSource] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<{ error: boolean; message: string } | null>(null);
-  useEffect(() => { setPlaceDraft(photo.place_label || photo.metadata_place || ""); }, [photo.place_label, photo.metadata_place]);
-  const inferredDate = captureLabel(photo.captured_raw);
-  return <article className="card photo-card" id={`photo-${photo.id}`}>
-    <img src={`${base}/api/media/${photo.id}/thumb`} alt="私密照片预览" loading="lazy" />
-    <div className="badge">{photo.used ? "已安排或生成发送记录" : photo.approved ? "待发送" : "待确认"}</div>
-    <details><summary>原始信息（仅管理者可见）</summary><p>拍摄时间：{photo.captured_raw || "未找到 EXIF 拍摄时间"}<br />GPS：{photo.latitude == null || photo.longitude == null ? "未找到" : `${photo.latitude}, ${photo.longitude}`}</p>
-      <p className="muted">有 EXIF 拍摄时间或内嵌地点时自动预填，不按服务器时区转换。GPS 不会自动发送给外部地图，需点击下方按钮并同意。</p></details>
-    <form key={`${photo.caption}:${photo.date_label}:${photo.place_label}:${photo.facts}:${photo.approved}`}
-      onChange={() => setSaveFeedback(null)} onSubmit={event => {
-      event.preventDefault(); const form = new FormData(event.currentTarget);
-      setSaving(true); setSaveFeedback(null);
-      void perform(async () => {
-        try {
-          await api("photo", {
-            id: photo.id, date_label: value(form, "date_label"), place_label: value(form, "place_label"),
-            facts: value(form, "facts"), caption: value(form, "caption"), approved: form.has("approved"),
-          });
-          setSaveFeedback({ error: false, message: `已保存 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}` });
-        } catch (error) {
-          setSaveFeedback({ error: true, message: error instanceof Error ? error.message : "保存失败，请重试" });
-          throw error;
-        } finally { setSaving(false); }
-      });
-    }}>
-      <fieldset disabled={busy} className="min-w-0">
-      <label>拍摄时间（可修改）<input name="date_label" defaultValue={photo.date_label || inferredDate} maxLength={80} placeholder="例如：大约 2019 年秋天" /></label>
-      <p className="muted">{inferredDate ? "已从 EXIF 拍摄时间提取候选，请核对；缺失的时区不作推断。" : "照片未提供可识别的原始拍摄时间；微信转发、截图或导出可能移除 EXIF。建议上传相机原图，或手动补充。"}</p>
-      <label>地点<input name="place_label" value={placeDraft} onChange={event => setPlaceDraft(event.target.value)} maxLength={120} placeholder="城市 / 景点；不知道可以留空" /></label>
-      <p className="muted">{photo.metadata_place ? "已提取照片内嵌地点，请核对。" : photo.latitude !== null && photo.longitude !== null ? "照片含 GPS，可按需解析为城市；不会从图片画面猜测地址。" : "照片未提供 GPS 或内嵌地点，无法自动还原地址。"}</p>
-      {photo.latitude !== null && photo.longitude !== null && <button type="button" className="quiet" disabled={busy} onClick={() => {
-        if (window.confirm("将照片 GPS 四舍五入到约百米精度后，发送给 OpenStreetMap / Nominatim 解析城市？不发送原图。候选地点需核对后手动保存。")) {
-          void perform(async () => {
-            const result = await api<{ place: string; source: string }>("photo/place", { id: photo.id, consent: true });
-            setPlaceDraft(result.place); setPlaceSource(result.source); setSaveFeedback(null);
-          }, "城市候选已填入；核对后点击照片的保存按钮");
-        }
-      }}>根据 GPS 解析城市</button>}
-      {placeSource && <p className="muted">{placeSource} · 地图数据 © OpenStreetMap contributors</p>}
-      <label>当时发生了什么<textarea name="facts" defaultValue={photo.facts} maxLength={3000} placeholder="只写你确认的事实。供整理与 AI 润色使用，不直接展示给收信人。" /></label>
-      <label>推送文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} /></label>
-      <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />信息和文案已确认，加入待发送素材</label>
-      <div className="actions">
-        <button disabled={busy} aria-busy={saving}>{saving ? "保存中…" : "保存"}</button>
-        <button type="button" className="quiet" onClick={() => setPreview(!preview)}>预览已保存内容</button>
-      </div>
-      </fieldset>
-      <div aria-live="polite" aria-atomic="true">
-        {saving && <p className="muted" role="status">正在保存，请稍候…</p>}
-        {!saving && saveFeedback && <p className={saveFeedback.error ? "alert error" : "alert"} role={saveFeedback.error ? "alert" : "status"}>
-          {saveFeedback.message}{saveFeedback.error ? "；请检查后重新保存。" : photo.used ? "，历史发送内容保持不变，不会自动重发。" : photo.approved ? "，已加入待发送素材。" : "，确认内容后可勾选加入待发送。"}
-        </p>}
-      </div>
-    </form>
-    {preview && <Letter snapshot={{ photo_id: photo.id, date_label: photo.date_label, place_label: photo.place_label, caption: photo.caption, weather: "", almanac: "", star_note: "" }} title="来信预览" />}
-    <details><summary>AI 帮我润色（可选）</summary>
-      <p className="muted">先保存事件说明。只发送已保存的说明文字，不发送原图；AI 候选不会自动写入或批准。API Key 和模型请在「设置与投递 → AI 服务配置」填写。</p>
-      <label>风格<select value={style} onChange={event => setStyle(event.target.value)}><option>温柔</option><option>朴实</option><option>俏皮</option></select></label>
-      <label className="check"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />本次同意把已保存的说明交给配置的 AI 服务</label>
-      <button disabled={busy || !aiEnabled || !consent} onClick={() => void perform(async () => {
-        const result = await api<{ draft: string }>("ai", { id: photo.id, style, consent: true }); setDraft(result.draft); setConsent(false);
-      }, "候选已生成，请挑选、修改后手动保存")}>{aiEnabled ? "生成候选文案" : "AI 尚未配置"}</button>
-      {draft && <pre className="draft">{draft}</pre>}
-    </details>
-    {!photo.used && <button className="quiet danger" disabled={busy} onClick={() => {
-      if (window.confirm("永久删除这张未使用的照片及原图？")) void perform(async () => { await api("photo/delete", { id: photo.id }); }, "已删除");
-    }}>删除未使用照片</button>}
-  </article>;
 }
 
 function Letter({ snapshot, title }: { snapshot: Snapshot; title: string }) {
@@ -368,19 +291,19 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
   const [connectionError, setConnectionError] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ error: boolean; message: string } | null>(null);
-  const [limitEnabled, setLimitEnabled] = useState(config.monthlyLimit !== null);
   useEffect(() => { setProvider(config.provider); setModel(config.model); }, [config.provider, config.model]);
-  useEffect(() => { setLimitEnabled(config.monthlyLimit !== null); }, [config.monthlyLimit]);
+  const preset = provider === "zhipu" && model.toLowerCase() === GLM_FLASH_MODEL;
+  const pricing = aiPricing(provider, model, config.inputRate, config.outputRate);
   return <section>
     <h2>AI 服务配置</h2>
-    <p className="muted">仅管理员可配置。密钥保存在服务器私密配置中，不会回显给浏览器或提供给收信人。保存配置不会自动调用模型、发送照片或启用微信推送。</p>
+    <p className="muted">每月上限固定 ¥100（北京时间自然月），达到预算后停止调用。GLM-5.3-Flash 已预设价格，只需填写 API Key。</p>
     <p className="muted">API Key：
       <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noreferrer">智谱开放平台</a> ·
       <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">DeepSeek</a>
     </p>
     {provider === "zhipu" && <p className="muted">使用智谱「模型标准 API」Key，不是 GLM Coding Plan 套餐 Key。固定端点：open.bigmodel.cn/api/paas/v4/chat/completions。
       <a href="https://docs.bigmodel.cn/cn/api/introduction" target="_blank" rel="noreferrer">官方接口说明</a></p>}
-    <form key={JSON.stringify(config)} className="form-grid" onSubmit={event => {
+    <form key={JSON.stringify(config)} onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       setSaveStatus(null);
       void perform(async () => {
@@ -389,7 +312,7 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
           model: value(form, "model"),
           inputRate: value(form, "inputRate").trim() ? Number(value(form, "inputRate")) : null,
           outputRate: value(form, "outputRate").trim() ? Number(value(form, "outputRate")) : null,
-          monthlyLimit: limitEnabled ? Number(value(form, "monthlyLimit")) : null,
+          monthlyLimit: 100,
         }); setApiKey(""); setConnection(""); setConnectionError(false);
         setSaveStatus({ error: false, message: "AI 配置已保存，密钥已保存在服务器，可点击下方验证。" });
         } catch (error) {
@@ -398,40 +321,39 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
         }
       }, "AI 配置已保存；密钥不会回显，可先测试连接");
     }}>
+      <fieldset className="form-grid" disabled={busy}>
       <label>供应商<select name="provider" value={provider} onChange={event => {
         const next = event.target.value;
         if (next !== "zhipu" && next !== "openai" && next !== "deepseek") return;
-        setProvider(next); setModel(next === "zhipu" ? "glm-5.3" : next === "openai" ? "gpt-4o-mini" : "deepseek-flash");
+        setProvider(next); setModel(next === "zhipu" ? GLM_FLASH_MODEL : next === "openai" ? "gpt-4o-mini" : "deepseek-flash");
         setApiKey(""); setConnection(""); setConnectionError(false);
       }}><option value="zhipu">智谱 GLM（标准 API）</option><option value="deepseek">DeepSeek（官方 API）</option><option value="openai">OpenAI（官方 API）</option></select></label>
-      <label>模型 ID<input name="model" value={model} onChange={event => setModel(event.target.value)} required maxLength={120} placeholder="按账号可用模型填写" /></label>
+      <label>模型 ID<input name="model" value={model} onChange={event => setModel(event.target.value)} required maxLength={120} placeholder="glm-5.3-flash" />
+        {provider === "zhipu" && !preset && <button type="button" className="quiet" onClick={() => setModel(GLM_FLASH_MODEL)}>使用 GLM-5.3-Flash 预设</button>}</label>
       <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
         <input name="apiKey" type="password" autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={512} placeholder={config.keyConfigured ? "填写新密钥以替换；不会显示旧值" : "粘贴你的 API Key"} /></label>
-      <label>输入单价（可选，美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.inputRate ?? ""} required={limitEnabled} /></label>
-      <label>输出单价（可选，美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.outputRate ?? ""} required={limitEnabled} /></label>
-      <p className="muted wide">单价留空时，费用记为未知而不是零，仍记录 token 用量。不要把人民币单价填进美元字段。</p>
-      <label className="check"><input type="checkbox" checked={limitEnabled} onChange={event => setLimitEnabled(event.target.checked)} />启用本系统月度费用限额</label>
-      {limitEnabled && <label>每月上限（美元）<input name="monthlyLimit" type="number" min="0.01" max="1000" step="any" defaultValue={config.monthlyLimit ?? 5} required /></label>}
-      {!limitEnabled && <p className="muted">不限额：本系统不按月阻止调用，供应商余额、权限和限流仍然有效。</p>}
-      <label className="check"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用文字文案生成（每次生成仍需单独同意）</label>
-      <label className="check wide"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label>
-      <button disabled={busy}>保存 AI 配置</button>
+      {preset ? <div className="wide preset-panel"><strong>GLM-5.3-Flash · 已内置</strong><p>输入 ¥{pricing.inputRate} / 百万 tokens · 输出 ¥{pricing.outputRate} / 百万 tokens · 每月上限 ¥100</p>
+        <p className="muted">缓存命中报价 ¥0.23 / 百万 tokens；限额按普通输入价保守计费，不因缓存折扣低估预算。当前文案功能只发送文字。</p></div> :
+        <div className="wide form-grid" key={provider + model}><label>输入单价（美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.currency === "USD" && provider === config.provider ? config.inputRate ?? "" : ""} required /></label>
+          <label>输出单价（美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.currency === "USD" && provider === config.provider ? config.outputRate ?? "" : ""} required /></label></div>}
+      <label className="check wide"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用 AI 文案生成</label>
+      <details className="wide"><summary>密钥管理</summary><label className="check"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label></details>
+      <div className="actions wide"><button disabled={busy}>{busy && !testing ? "保存中…" : "保存 AI 配置"}</button>
+        <button type="button" className="quiet" disabled={busy || !config.keyConfigured || provider !== config.provider || model !== config.model || !!apiKey} aria-busy={testing} onClick={() => {
+          setTesting(true); setConnectionError(false); setConnection("正在验证已保存的配置，请稍候…");
+          void perform(async () => {
+            try {
+              const result = await api<{ message: string }>("ai/test", { confirm: true }); setConnection(result.message);
+            } catch (error) {
+              setConnectionError(true); setConnection(error instanceof Error ? error.message : "验证失败"); throw error;
+            } finally { setTesting(false); }
+          }, "AI 连接检查完成");
+        }}>{testing ? "验证中…" : "验证已保存配置"}</button></div>
       {saveStatus && <p className={`wide alert${saveStatus.error ? " error" : ""}`} role={saveStatus.error ? "alert" : "status"}>{saveStatus.message}</p>}
+      </fieldset>
     </form>
-    <button className="quiet" disabled={busy || !config.keyConfigured} aria-busy={testing} onClick={() => {
-      setTesting(true); setConnectionError(false); setConnection("正在验证已保存的密钥和模型，请稍候…");
-      void perform(async () => {
-        try {
-          const result = await api<{ message: string }>("ai/test", { confirm: true });
-          setConnection(result.message);
-        } catch (error) {
-          setConnectionError(true); setConnection(error instanceof Error ? error.message : "验证失败，请重试");
-          throw error;
-        } finally { setTesting(false); }
-      }, "AI 连接检查完成");
-    }}>{testing ? "验证中…" : config.provider === "zhipu" ? "验证智谱配置（少量计费测试）" : "测试已保存配置（模型列表）"}</button>
-    {config.provider === "zhipu" && <p className="muted">智谱验证会用固定文本请求一次模型，消耗少量 tokens；不发送照片或素材说明。不启用限额时无需填写单价。</p>}
+    {config.provider === "zhipu" && <p className="muted">验证会请求一次固定测试文本，计入月度预算；不发送照片或事件说明。修改后请先保存再验证。</p>}
     {connection && <p className={`alert${connectionError ? " error" : ""}`} role={connectionError ? "alert" : "status"} aria-live="polite">{connection}</p>}
-    <p className="muted">生成草稿只发送你主动同意的事件说明，不上传照片或 GPS；生成结果仍由你审核。预算按 token 单价估算，并非供应商账单的硬性封顶。</p>
+    <p className="muted">生成结果自动填入草稿，由你保存确认后才能进入队列。人民币预算按 tokens 保守估算，并发请求先预留费用；超时保留预留，不自动重试。旧美元记录及美元定价模型按固定 1 USD = ¥8 记账，中央美元日志为折算估算值。此限额只约束本系统，不是供应商账号总账单封顶。</p>
   </section>;
 }

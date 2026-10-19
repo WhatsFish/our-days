@@ -53,10 +53,18 @@ test("saved AI config is loaded per call and connection test sends no photo fact
     assert.equal((await runtimeAI()).url, "https://open.bigmodel.cn/api/paas/v4/chat/completions");
     assert.equal(aiConfigInput.safeParse({ ...config, provider: "zhipu", model: "glm-5.3" }).success, true);
     await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, monthlyLimit: null, inputRate: null, outputRate: null }));
-    assert.equal((await runtimeAI()).monthlyLimit, null);
+    assert.equal((await runtimeAI()).monthlyLimit, 100);
     assert.equal((await runtimeAI()).inputRate, null);
     await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, provider: "zhipu", model: "GLM-5.3-Flash", monthlyLimit: null }));
     assert.equal((await runtimeAI()).model, "glm-5.3-flash");
+    const flash = await runtimeAI();
+    assert.equal(flash.currency, "CNY");
+    assert.equal(flash.inputRate, 0.8);
+    assert.equal(flash.outputRate, 2.8);
+    assert.equal(flash.monthlyLimit, 100, "Legacy uncapped settings cannot bypass the fixed cap");
+    const publicConfig = publicAI({ ...config, provider: "zhipu", model: "GLM-5.3-Flash", inputRate: 0, outputRate: 0, monthlyLimit: null });
+    assert.equal(publicConfig.inputRate, 0.8, "Saved zero prices cannot bypass the model preset");
+    assert.equal(publicConfig.outputRate, 2.8);
   } finally {
     if (previous === undefined) delete process.env.PRIVATE_CONFIG_DIR; else process.env.PRIVATE_CONFIG_DIR = previous;
     await unlink(path.join(dir, "ai.json")); await rmdir(dir);

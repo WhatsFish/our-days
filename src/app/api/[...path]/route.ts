@@ -88,20 +88,44 @@ export async function GET(request: NextRequest, context: Context) {
       return json(rows);
     }
     await requireRole(request, true);
+    if (route === "photos") {
+      const params = z.object({
+        page: z.coerce.number().int().min(1).max(100000).default(1),
+        q: z.string().trim().max(120).default(""),
+        status: z.enum(["all", "ready", "unreviewed", "used"]).default("all"),
+      }).parse(Object.fromEntries(request.nextUrl.searchParams));
+      const used = "EXISTS (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')";
+      const filter = params.status === "ready" ? `p.approved AND NOT ${used}` :
+        params.status === "unreviewed" ? `NOT p.approved AND NOT ${used}` :
+        params.status === "used" ? used : "true";
+      const where = `${filter} AND ($1='' OR strpos(lower(concat_ws(' ',p.date_label,p.place_label,p.caption,p.facts)),lower($1))>0)`;
+      const [count] = await query<{ total: number }>(`SELECT count(*)::int AS total FROM photos p WHERE ${where}`, [params.q]);
+      const page = Math.min(params.page, Math.max(1, Math.ceil(count.total / 20)));
+      const photos = await query(`SELECT p.*,(${used})::int AS used FROM photos p WHERE ${where}
+        ORDER BY p.created_at DESC,p.id DESC LIMIT 20 OFFSET $2`, [params.q, (page - 1) * 20]);
+      return json({ photos, total: count.total, page });
+    }
+    if (route.startsWith("photo/")) {
+      const id = uuid.parse(route.slice(6));
+      const [photo] = await query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used
+        FROM photos p WHERE p.id=$1`, [id]);
+      if (!photo) throw new AppError(404, "not_found", "照片不存在");
+      return json(photo);
+    }
     if (route === "imports") {
       const ids = z.array(uuid).min(1).max(100).parse((request.nextUrl.searchParams.get("ids") ?? "").split(","));
       return json(await query("SELECT id,status,added,duplicates,errors FROM imports WHERE id=ANY($1::uuid[])", [ids]));
     }
     if (route === "admin") {
-      const [photos, editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime, nextPhotos, stats, resources, queue] = await Promise.all([
-        query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used
-               FROM photos p ORDER BY created_at DESC LIMIT 1000`),
+      const [editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime, nextPhotos, stats, resources, queue] = await Promise.all([
         query("SELECT id,day::text,photo_id,title,send_at,notify,status,snapshot FROM editions ORDER BY day DESC LIMIT 366"),
         query("SELECT id,status,added,duplicates,errors,created_at FROM imports ORDER BY created_at DESC LIMIT 20"),
         query("SELECT d.*,e.day::text FROM deliveries d JOIN editions e ON e.id=d.edition_id ORDER BY e.day DESC LIMIT 366"),
         query<Settings>("SELECT * FROM settings WHERE id=true"),
         query<{ last_tick: Date | null; error_code: string | null }>("SELECT * FROM worker_state"), storageBytes(),
-        query("SELECT coalesce(sum(cost_usd),0)::text AS total,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unknown_cost FROM ai_events WHERE created_at>=date_trunc('month',now())"),
+        query(`SELECT coalesce(sum(coalesce(cost_cny,cost_usd*8)),0)::text AS total,
+          count(*) FILTER(WHERE cost_cny IS NULL AND cost_usd IS NULL)::int AS unknown_cost FROM ai_events
+          WHERE created_at>=date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'`),
         aiSettings(), runtimeAI(),
         query(`${READY_PHOTO_SQL}`),
         query<OperatorCounts>(OPERATOR_COUNTS_SQL), resourceStatus(),
@@ -109,7 +133,7 @@ export async function GET(request: NextRequest, context: Context) {
           WHERE approved AND NOT EXISTS (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')
           ORDER BY p.created_at,p.id LIMIT 100`),
       ]);
-      return json({ photos, editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
+      return json({ editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
         quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total, aiUnknownCost: costs[0].unknown_cost,
         pushEnabled: process.env.PUSH_ENABLED === "true",
         pushChannel: process.env.PUSH_CHANNEL ?? "wechat-test",
@@ -277,8 +301,9 @@ export async function POST(request: NextRequest, context: Context) {
       return json({ ok: true });
     }
     if (route === "ai") {
-      const value = z.object({ id: uuid, consent: z.literal(true), style: z.enum(["朴实", "俏皮", "温柔"]) }).parse(body);
-      return json({ draft: await suggestCaption(value.id, value.style) });
+      const value = z.object({ id: uuid, consent: z.literal(true), style: z.enum(["朴实", "俏皮", "温柔"]),
+        facts: z.string().trim().min(1).max(3000).optional() }).parse(body);
+      return json({ draft: await suggestCaption(value.id, value.style, value.facts) });
     }
     throw new AppError(404, "not_found", "接口不存在");
   } catch (error) { return failure(error); }

@@ -75,6 +75,48 @@ footer { border-top: 1px solid var(--line); margin-top: 50px; padding-top: 22px;
 .metric { border: 1px solid var(--line); border-radius: 5px; padding: 14px; }
 .metric span { display: block; color: var(--muted); font-size: 12px; }
 .metric strong { font: 600 26px ui-monospace, monospace; }
+.shell:has(.library), .shell:has(.metrics), .shell:has(.statusbar) { max-width: 1360px; padding-top: 24px; }
+.shell:has(.statusbar) h1 { font-family: inherit; font-size: 25px; font-weight: 600; letter-spacing: 0; }
+.shell:has(.statusbar) h2 { font-family: inherit; font-size: 18px; font-weight: 600; }
+.shell:has(.statusbar) .masthead { padding-bottom: 16px; margin-bottom: 16px; }
+.shell:has(.statusbar) .badge { margin: 0; white-space: nowrap; }
+fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.section-heading, .library-toolbar, .pagination, .editor-header, .ai-toolbar { display: flex; align-items: center; gap: 16px; }
+.section-heading { justify-content: space-between; flex-wrap: wrap; }
+.section-heading h2 { margin: 0; }
+.library-toolbar { align-items: flex-end; margin-bottom: 18px; }
+.library-toolbar label { margin: 0; }
+.library-toolbar label:first-child { flex: 1; }
+.library-toolbar select { min-width: 150px; }
+.pagination { justify-content: flex-end; margin-top: 20px; font-size: 13px; }
+.material-table { table-layout: fixed; }
+.material-table th:first-child { width: 84px; }
+.material-table th:nth-child(2) { width: 23%; }
+.material-table th:nth-child(4) { width: 140px; }
+.material-table th:last-child { width: 85px; }
+.material-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumbnail-button { padding: 0; background: transparent; display: block; }
+.mini { width: 58px; height: 64px; object-fit: contain; background: #eeeee6; }
+.upload-disclosure > .card { border: 0; padding: 16px 0 0; margin: 0; }
+.photo-dialog { width: min(1160px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: #fffdf8; }
+.photo-dialog::backdrop { background: rgb(20 27 24 / 55%); }
+.photo-dialog h2 { font-family: inherit; font-size: 20px; font-weight: 600; margin: 0; }
+.editor-header { justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; background: #fffdf8; }
+.editor-header .actions { margin: 0; gap: 8px; }
+.editor-body { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.3fr); gap: 28px; padding: 24px; }
+.editor-photo > img { width: 100%; max-height: 65vh; object-fit: contain; background: #efefe8; border-radius: 6px; }
+.editor-photo details { margin-top: 16px; }
+.editor-fields label:first-child { margin-top: 0; }
+.editor-fields .caption-input { min-height: 155px; font-size: 16px; }
+.ai-toolbar { align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.ai-toolbar label { margin: 0; }
+.editor-footer { border-top: 1px solid var(--line); background: #fffdf8; padding: 16px 24px; }
+.editor-footer .actions { margin: 0; }
+.editor-footer .alert { margin-top: 0; }
+.draft-preview { max-width: 430px; margin: 20px auto; background: #fffefa; padding: 20px 20px 36px; border: 1px solid var(--line); }
+.draft-preview img { max-height: 450px; width: 100%; object-fit: contain; }
+.draft-preview .caption { font-family: inherit; margin: 12px 0; }
+.preset-panel { background: #eef3e8; border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin: 12px 0; font-size: 13px; }
 @media (max-width: 720px) {
   .shell { padding: 26px 16px; }
   h1 { font-size: 34px; }
@@ -85,4 +127,15 @@ footer { border-top: 1px solid var(--line); margin-top: 50px; padding-top: 22px;
   .tabs { gap: 5px; }
   .tabs button { padding: 9px 11px; }
   .login { margin: 30px auto; }
+  .library-toolbar { flex-wrap: wrap; gap: 10px; }
+  .library-toolbar label:first-child { flex-basis: 100%; }
+  .material-table { min-width: 580px; }
+  .photo-dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
+  .editor-header { padding: 12px; gap: 8px; }
+  .editor-header .actions { gap: 4px; }
+  .editor-header button { padding: 8px; }
+  .editor-body { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+  .editor-photo > img { max-height: 32vh; }
+  .editor-footer { padding: 16px; }
+  .pagination { justify-content: space-between; }
 }

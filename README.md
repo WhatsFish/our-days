@@ -397,8 +397,11 @@ does not redirect an already-created delivery to a different provider.
 ## AI privacy and costs
 
 Administrators can open **Settings / AI service configuration** to save a
-Zhipu, DeepSeek or OpenAI API key, model ID, USD-per-million input/output rates and a
-monthly budget, without editing environment files. Only the official fixed
+Zhipu, DeepSeek or OpenAI API key and model ID without editing environment files.
+GLM-5.3-Flash is the default preset: CNY 0.8/M input and CNY 2.8/M output.
+The application-wide monthly budget is fixed at CNY 100 (Beijing calendar month),
+including connection tests. Saved legacy null caps and zero Flash prices do not
+override this policy. Only the official fixed
 HTTPS endpoints are available; arbitrary client-supplied URLs are not accepted.
 Keys are write-only in the UI: a blank field preserves an existing key, deletion
 is explicit, and changing providers requires a matching new key. Saving does not
@@ -425,9 +428,13 @@ HTTP-derived error code; raw provider bodies and credentials are not echoed.
 
 DeepSeek's official key portal is <https://platform.deepseek.com/api_keys>.
 Use the provider's current model and pricing documentation rather than stale
-model aliases or assumed exchange rates. API key and model are sufficient when
-the monthly cap is off. New installations default to AI disabled with no monthly
-cap; dashboard settings
+model aliases. Other models require USD input/output rates. For mixed-currency
+budgeting, USD-priced calls and legacy USD records use a fixed conservative
+accounting rate of CNY 8/USD, not a live exchange-rate quote. Flash calls store
+their native estimate in `cost_cny`; `cost_usd` and central cost logging are
+accounting conversions at this rate. Cache-hit input is conservatively charged
+at the normal input price instead of assuming a discount.
+New installations default to AI disabled with the Flash preset; dashboard settings
 take priority once saved. Environment-only configuration remains available if
 no dashboard settings file exists.
 
@@ -440,23 +447,25 @@ input; it does not guess a city from a photograph.
 
 AI is off by default. For legacy environment configuration, `AI_URL` is a server-configured HTTPS
 OpenAI-compatible chat-completions endpoint, not a user-supplied URL.
-Only the explicitly consented, saved facts are transmitted; image bytes,
-EXIF and unsaved form text are not sent. Confirm that the configured provider
+Clicking Generate authorizes sending the current event-description draft;
+no separate consent checkbox or preliminary save is required. Image bytes and
+EXIF are not sent. Confirm that the configured provider
 is approved for any personal text before enabling it.
 
-The administrator can explicitly turn the monthly cap off (`monthlyLimit=null`),
-without replacing it with a large artificial cap. Provider balance/rate limits
-and the duplicate-click cooldown still apply. Input/output prices are optional
-without a cap: missing prices keep `cost_usd=NULL` and record actual token usage,
-never falsely treating an unpriced call as free.
+The cap cannot be disabled in the UI or bypassed through legacy API fields.
+Budget is reserved transactionally before submission, using an input byte-count
+upper estimate and the output token ceiling. Missing usage and ambiguous failures
+retain the reservation; explicit HTTP 4xx rejections release it, while HTTP 5xx
+failures keep it. Prior unknown costs
+block generation until accounted for, never count as zero. This controls only this
+application's estimated spend, not other users of the provider account.
 
-When enabling a monthly cap, both prices must be known. Budget is reserved
-transactionally before submission; failures or missing usage retain a
-conservative estimate rather than hiding possible charges. Prior calls with
-unknown costs prevent a later capped call until accounted for or the cap is
-disabled, rather than silently treating them as zero. Candidates
-are shown to the administrator and must be manually copied/edited into a caption.
-They are not automatically approved or scheduled.
+The material library has server-side search, status filters and 20-row pagination.
+Opening a row shows one focused editor with previous/next navigation within the
+current page. AI returns one caption, displays elapsed time while running, and
+fills the editable caption draft with undo available. Nothing is saved or approved
+by generation. Preview uses the current draft; saving and queue approval remain
+explicit. Closing or switching away with unsaved edits requires confirmation.
 
 ## Integration checks
 
@@ -481,6 +490,14 @@ For example, start an existing
 `postgres:16-alpine` image with a temporary in-memory data directory, trust auth,
 and **only** `127.0.0.1:54326:5432`; remove that test container after the run.
 Never enable trust authentication for a production database.
+
+`tests/admin-ux.browser.mjs` exercises the built console in Chromium with
+103 synthetic photos and mocked APIs, including mobile layout and AI error paths.
+It starts and stops its own loopback server on port 3317 and never accesses real
+photos or calls a provider. Run with Playwright installed, or set
+`PLAYWRIGHT_MODULE` to an existing Playwright module path. Set
+`OUR_DAYS_CONTAINER_TEST=true` to exercise `our-days-web:local` instead of the
+host build; its transient container has no private media or configuration mounts.
 
 ## Backup and recovery
 

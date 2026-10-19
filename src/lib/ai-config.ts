@@ -4,28 +4,34 @@ import path from "node:path";
 import { z } from "zod";
 import { AppError } from "./domain";
 import { transaction } from "./db";
+import { aiPricing, AI_MONTHLY_CNY_LIMIT, GLM_FLASH_MODEL } from "./ai-policy";
 
 const fields = z.object({
   enabled: z.boolean(),
   provider: z.enum(["deepseek", "openai", "zhipu"]),
   model: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9._:/-]+$/),
-  inputRate: z.number().finite().min(0).max(10000).nullable(),
-  outputRate: z.number().finite().min(0).max(10000).nullable(),
-  monthlyLimit: z.number().finite().positive().max(1000).nullable(),
+  inputRate: z.number().finite().min(0).max(10000).nullable().default(null),
+  outputRate: z.number().finite().min(0).max(10000).nullable().default(null),
+  monthlyLimit: z.number().finite().positive().max(1000).nullable().default(AI_MONTHLY_CNY_LIMIT),
 });
 const key = z.string().trim().min(8).max(512).regex(/^[a-zA-Z0-9_.-]+$/);
 const storedSchema = fields.extend({ apiKey: key.or(z.literal("")) });
 export const aiConfigInput = fields.extend({ apiKey: key.or(z.literal("")).optional(), clearKey: z.boolean().default(false) });
 export type StoredAI = z.infer<typeof storedSchema>;
-export type PublicAI = Omit<StoredAI, "apiKey"> & { keyConfigured: boolean; source: "dashboard" };
+export type PublicAI = Omit<StoredAI, "apiKey"> & { keyConfigured: boolean; source: "dashboard"; currency: "CNY" | "USD" };
 export type AIConfiguration = {
   enabled: boolean; provider: string; model: string; apiKey: string; url: string;
   inputRate: number | null; outputRate: number | null; monthlyLimit: number | null;
+  currency: "CNY" | "USD";
 };
 const defaults: StoredAI = {
-  enabled: false, provider: "deepseek", model: "deepseek-flash", apiKey: "",
-  inputRate: null, outputRate: null, monthlyLimit: null,
+  enabled: false, provider: "zhipu", model: GLM_FLASH_MODEL, apiKey: "",
+  inputRate: 0.8, outputRate: 2.8, monthlyLimit: AI_MONTHLY_CNY_LIMIT,
 };
+function policy(config: StoredAI) {
+  const model = config.provider === "zhipu" && /^glm-/i.test(config.model) ? config.model.toLowerCase() : config.model;
+  return { ...config, model, ...aiPricing(config.provider, model, config.inputRate, config.outputRate), monthlyLimit: AI_MONTHLY_CNY_LIMIT };
+}
 function configPath() {
   const dir = process.env.PRIVATE_CONFIG_DIR;
   if (!dir || !path.isAbsolute(dir)) throw new AppError(503, "ai_storage", "AI 私密配置存储未配置");
@@ -40,7 +46,7 @@ async function stored(): Promise<StoredAI | null> {
   }
 }
 export function publicAI(config: StoredAI): PublicAI {
-  const { apiKey, ...safe } = config;
+  const { apiKey, ...safe } = policy(config);
   return { ...safe, keyConfigured: !!apiKey, source: "dashboard" };
 }
 export async function aiSettings(): Promise<PublicAI> {
@@ -56,14 +62,14 @@ export async function saveAISettings(input: unknown): Promise<PublicAI> {
       throw new AppError(400, "ai_key", "更换供应商时请填写对应的新密钥或清除旧密钥");
     }
     const { clearKey, apiKey, ...rest } = data;
-    const next = { ...rest,
+    const next = policy({ ...rest,
       model: rest.provider === "zhipu" && /^glm-/i.test(rest.model) ? rest.model.toLowerCase() : rest.model,
-      apiKey: clearKey ? "" : apiKey || previous?.apiKey || "" };
+      apiKey: clearKey ? "" : apiKey || previous?.apiKey || "" });
     if (next.enabled && !next.apiKey) {
       throw new AppError(400, "ai_config", "启用 AI 前请填写 API Key");
     }
-    if (next.monthlyLimit !== null && (next.inputRate === null || next.outputRate === null)) {
-      throw new AppError(400, "ai_config", "启用费用限额时需要填写输入、输出单价；或关闭限额，只记录 token 用量");
+    if (next.enabled && (next.inputRate === null || next.outputRate === null)) {
+      throw new AppError(400, "ai_config", "此模型尚无价格预设，请填写单价，或选择 GLM-5.3-Flash 自动配置");
     }
     const file = configPath();
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -84,8 +90,7 @@ export async function saveAISettings(input: unknown): Promise<PublicAI> {
 export async function runtimeAI(): Promise<AIConfiguration> {
   const config = await stored();
   if (config) return {
-    ...config,
-    model: config.provider === "zhipu" && /^glm-/i.test(config.model) ? config.model.toLowerCase() : config.model,
+    ...policy(config),
     url: config.provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
       config.provider === "deepseek" ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions",
   };
@@ -94,7 +99,7 @@ export async function runtimeAI(): Promise<AIConfiguration> {
     apiKey: process.env.AI_API_KEY ?? "", url: process.env.AI_URL ?? "", model: process.env.AI_MODEL ?? "",
     inputRate: process.env.AI_INPUT_USD_PER_MILLION ? Number(process.env.AI_INPUT_USD_PER_MILLION) : null,
     outputRate: process.env.AI_OUTPUT_USD_PER_MILLION ? Number(process.env.AI_OUTPUT_USD_PER_MILLION) : null,
-    monthlyLimit: process.env.AI_MONTHLY_USD_LIMIT === "none" ? null : Number(process.env.AI_MONTHLY_USD_LIMIT ?? 5),
+    monthlyLimit: AI_MONTHLY_CNY_LIMIT, currency: "USD",
   };
 }
 export async function testAIConnection(fetcher: typeof fetch = fetch) {

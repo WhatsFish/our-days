@@ -142,22 +142,37 @@ try {
     assert.equal(lastAI.provider, "zhipu");
     assert.equal(lastAI.task, "connection_test");
     assert.ok(Number(lastAI.cost_usd) > 0);
-    const noCap = { ...settings, provider: "zhipu", model: "glm-5.3", apiKey: "", enabled: true, monthlyLimit: null, inputRate: null, outputRate: null };
-    assert.equal((await adminPost("ai/config", noCap)).status, 200);
-    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds',cost_usd=999999");
-    assert.equal((await adminPost("ai/test", { confirm: true })).status, 200, "Uncapped calls must not be blocked by prior monthly spend");
-    const unpriced = (await pool.query("SELECT input_tokens,output_tokens,cost_usd,status FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
-    assert.equal(unpriced.input_tokens, 10);
-    assert.equal(unpriced.output_tokens, 1);
-    assert.equal(unpriced.cost_usd, null);
-    assert.equal(unpriced.status, "complete");
-    assert.equal((await adminPost("ai/config", { ...noCap, monthlyLimit: 5 })).status, 400, "A cap needs known prices");
-    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
-    assert.equal((await adminPost("ai/config", { ...noCap, monthlyLimit: 5, inputRate: 1, outputRate: 2 })).status, 200);
-    assert.equal((await adminPost("ai/test", { confirm: true })).status, 409, "Unknown historic costs must not be counted as zero under a new cap");
-    const flashConfig = await adminPost("ai/config", { ...noCap, model: "GLM-5.3-Flash" });
+    const flashSettings = { ...settings, provider: "zhipu", model: "GLM-5.3-Flash", apiKey: "", enabled: true, monthlyLimit: null, inputRate: null, outputRate: null };
+    assert.equal((await adminPost("ai/config", { ...flashSettings, model: "glm-5.3" })).status, 400, "Unpriced models cannot bypass the fixed cap");
+    const flashConfig = await adminPost("ai/config", flashSettings);
     assert.equal(flashConfig.status, 200);
-    assert.equal((await flashConfig.json()).model, "glm-5.3-flash");
+    const flashPublic = await flashConfig.json();
+    assert.equal(flashPublic.model, "glm-5.3-flash");
+    assert.equal(flashPublic.monthlyLimit, 100);
+    assert.equal(flashPublic.inputRate, 0.8);
+    assert.equal(flashPublic.outputRate, 2.8);
+    assert.equal(flashPublic.currency, "CNY");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds',cost_usd=0,cost_cny=0");
+    const eventId = (await pool.query("SELECT id FROM ai_events LIMIT 1")).rows[0].id;
+    await pool.query("UPDATE ai_events SET cost_cny=99.999 WHERE id=$1", [eventId]);
+    globalThis.fetch = async () => { throw new Error("Budget exhaustion must prevent any provider call"); };
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 429, "Reserve must fit under CNY100");
+    await pool.query("UPDATE ai_events SET cost_cny=NULL,cost_usd=NULL WHERE id=$1", [eventId]);
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 409, "Unknown historic charges must not become zero");
+    await pool.query("UPDATE ai_events SET cost_cny=0,cost_usd=0 WHERE id=$1", [eventId]);
+    globalThis.fetch = async (_input, init) => {
+      const payload = JSON.parse(String(init?.body));
+      assert.equal(payload.messages[1].content.includes("Unsaved synthetic facts"), true);
+      assert.match(payload.messages[0].content, /只给出一段/);
+      return Response.json({ choices: [{ message: { content: "One ready-to-edit caption" } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
+    };
+    const draft = await adminPost("ai", { id: photoId, style: "俏皮", consent: true, facts: "Unsaved synthetic facts" });
+    assert.equal(draft.status, 200);
+    assert.equal((await draft.json()).draft, "One ready-to-edit caption");
+    assert.equal((await pool.query("SELECT facts FROM photos WHERE id=$1", [photoId])).rows[0].facts, "A confirmed synthetic memory", "Generating must not save facts or approve stock");
+    const cny = (await pool.query("SELECT cost_cny FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].cost_cny;
+    assert.equal(Number(cny), (20 * 0.8 + 10 * 2.8) / 1_000_000);
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 400);
     await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
     let flashCalls = 0;
     globalThis.fetch = async (_input, init) => {
@@ -175,6 +190,18 @@ try {
     const failedEvent = (await pool.query("SELECT status,error_code FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
     assert.equal(failedEvent.status, "failed");
     assert.equal(failedEvent.error_code, "ai_provider_http_401");
+    assert.equal(Number((await pool.query("SELECT cost_cny FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].cost_cny), 0, "Explicit HTTP rejection releases reserved budget");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    globalThis.fetch = async () => new Response("", { status: 500 });
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 502);
+    assert.ok(Number((await pool.query("SELECT cost_cny FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].cost_cny) > 0,
+      "Server-side failures may have processed tokens and must retain the reservation");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: "OK without usage" } }] });
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 200);
+    const estimated = (await pool.query("SELECT status,cost_cny FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
+    assert.equal(estimated.status, "estimated");
+    assert.ok(Number(estimated.cost_cny) > 0, "Missing usage must not erase reserved charges");
   } finally { globalThis.fetch = originalFetch; }
   assert.equal((await adminPost("ai/config", { ...settings, enabled: false, apiKey: "", clearKey: true })).status, 200);
   const dashboard = await GET(new NextRequest("https://example.com/our-days/api/admin", { headers: { Cookie: `our_days_session=${token}` } }),
@@ -183,13 +210,32 @@ try {
   const publicDashboard = await dashboard.text();
   assert.equal(publicDashboard.includes("synthetic-secret"), false);
   assert.equal(JSON.parse(publicDashboard).ai.keyConfigured, false);
-  assert.equal(JSON.parse(publicDashboard).aiUnknownCost, 2);
+  assert.equal(JSON.parse(publicDashboard).aiUnknownCost, 0);
   const status = JSON.parse(publicDashboard);
   assert.equal(typeof status.stats.photos, "number");
   assert.equal(typeof status.stats.submitted, "number");
   assert.equal(status.resources.processRss > 0, true);
   assert.equal(status.resources.diskFree > 0, true);
   assert.equal(Array.isArray(status.queue), true);
+  const libraryGet = (endpoint: string, cookie = token) => GET(new NextRequest(`https://example.com/our-days/api/${endpoint}`,
+    { headers: { Cookie: `our_days_session=${cookie}` } }), { params: Promise.resolve({ path: [endpoint.split("?")[0]] }) });
+  const libraryIds = Array.from({ length: 23 }, () => randomUUID());
+  try {
+    for (const [index, id] of libraryIds.entries()) await pool.query(
+      "INSERT INTO photos(id,sha256,original_ext,original_bytes,place_label,caption,approved) VALUES($1,$2,'jpg',1,'Library test marker',$3,$4)",
+      [id, randomUUID(), `Caption ${index}`, index < 3]);
+    assert.equal((await libraryGet("photos?q=Library", reader)).status, 403);
+    const firstPage = await (await libraryGet("photos?q=Library%20test%20marker")).json();
+    const secondPage = await (await libraryGet("photos?q=Library%20test%20marker&page=2")).json();
+    assert.equal(firstPage.total, 23); assert.equal(firstPage.photos.length, 20);
+    assert.equal(secondPage.photos.length, 3);
+    assert.equal(new Set([...firstPage.photos, ...secondPage.photos].map(photo => photo.id)).size, 23);
+    assert.equal((await (await libraryGet("photos?q=Library%20test%20marker&status=ready")).json()).total, 3);
+    assert.equal((await (await libraryGet("photos?q=Library%20test%20marker&status=unreviewed")).json()).total, 20);
+    assert.equal((await (await libraryGet("photos?q=Library%20test%20marker&page=500")).json()).page, 2);
+    assert.equal((await libraryGet("photos?page=0")).status, 400);
+    assert.equal((await (await libraryGet("photos?q=%25")).json()).total, 0, "Search percent is literal, not a wildcard");
+  } finally { await pool.query("DELETE FROM photos WHERE id=ANY($1::uuid[])", [libraryIds]); }
   await pool.query("DELETE FROM photos WHERE id=$1", [photoId]);
   console.log("Receipt integration passed: signature, mass counters, zero-recipient success, deduplication, validation, template regression.");
   console.log("AI settings integration passed: admin-only save, no key echoes, blank preservation, supplier-change guard, mock generation, cost recording, connection test and key deletion.");
