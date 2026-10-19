@@ -5,6 +5,7 @@ import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
 import type { PublicAI } from "../lib/ai-config";
 import { captureLabel } from "../lib/photo-metadata";
 import { UploadPanel } from "./upload-panel";
+import type { OperatorCounts, Resources } from "../lib/operator-status";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -15,6 +16,10 @@ type Dashboard = {
   bytes: number; quotaMb: number; pushEnabled: boolean; pushReady: boolean; pushChannel: string; aiEnabled: boolean; aiCost: string;
   ai: PublicAI;
   nextPhotoId: string | null;
+  stats: OperatorCounts;
+  resources: Resources;
+  queue: Pick<Photo, "id" | "date_label" | "place_label" | "caption">[];
+  health: { healthy: boolean; reason: string };
 };
 const base = "/our-days";
 const labels: Record<string, string> = {
@@ -55,16 +60,16 @@ export function Workspace() {
   useEffect(() => {
     void api<{ role: Role }>("session").then(async session => {
       setRole(session.role);
-      setTab(session.role === "admin" ? "library" : "letters");
+      setTab(session.role === "admin" ? "status" : "letters");
       await refresh(session.role);
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, [refresh]);
   const pending = dashboard?.imports.some(job => ["queued", "processing"].includes(job.status));
   useEffect(() => {
-    if (!pending || role !== "admin" || busy) return;
-    const timer = setInterval(() => { void refresh(role).catch(e => setError(e.message)); }, 5000);
+    if ((!pending && tab !== "status") || role !== "admin" || busy) return;
+    const timer = setInterval(() => { void refresh(role).catch(e => setError(e.message)); }, pending ? 5000 : 30000);
     return () => clearInterval(timer);
-  }, [pending, role, busy, refresh]);
+  }, [pending, role, busy, refresh, tab]);
   async function perform(work: () => Promise<void>, message = "已保存", refreshAfter = true) {
     setBusy(true); setError(""); setNotice("");
     try { await work(); if (refreshAfter) await refresh(role); setNotice(message); }
@@ -76,12 +81,12 @@ export function Workspace() {
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       const session = await api<{ role: Role }>("login", { role: value(form, "role"), password: value(form, "password") });
-      setRole(session.role); setTab(session.role === "admin" ? "library" : "letters"); await refresh(session.role);
+      setRole(session.role); setTab(session.role === "admin" ? "status" : "letters"); await refresh(session.role);
     }, "已安全配对");
   }
-  if (loading) return <main className="shell"><p className="eyebrow">OUR DAYS</p><h1>正在打开信箱…</h1></main>;
+  if (loading) return <main className="shell"><h1>加载中…</h1></main>;
   return <main className="shell">
-    <header className="masthead"><div><p className="eyebrow">OUR DAYS / A PRIVATE COLLECTION</p><h1>拾光<span>把平凡的日子，慢慢收藏。</span></h1></div>
+    <header className="masthead"><h1>{role === "reader" ? "照片记录" : "照片推送管理"}</h1>
       {role && <button className="quiet" disabled={busy} onClick={() => void perform(async () => {
         await api("logout", {}); setRole(null); setDashboard(null); setEditions([]);
       }, "已退出", false)}>退出</button>}
@@ -89,16 +94,15 @@ export function Workspace() {
     {error && <div className="alert error" role="alert">{error}</div>}
     {notice && <div className="alert" role="status">{notice}</div>}
     {!role ? <section className="login card">
-      <p className="eyebrow">ONLY FOR YOU</p><h2>有些回忆，只想与你分享。</h2>
-      <p className="muted">输入单独交给你的配对码。这里的照片不会向访客开放。</p>
+      <h2>登录</h2>
       <form onSubmit={signIn}>
         <label>身份<select name="role"><option value="reader">收信人</option><option value="admin">管理照片与来信</option></select></label>
         <label>配对码<input name="password" type="password" autoComplete="current-password" required maxLength={256} /></label>
-        <button disabled={busy}>打开信箱</button>
+        <button disabled={busy}>登录</button>
       </form>
     </section> : <>
       <nav className="tabs" aria-label="工作区">
-        {(role === "admin" ? [["library", "素材库"], ["history", "发送记录"], ["settings", "设置"]] : [["letters", "回忆相册"]]).map(([key, name]) =>
+        {(role === "admin" ? [["status", "运行状态"], ["library", "队列与素材"], ["history", "发送记录"], ["settings", "API 与系统配置"]] : [["letters", "照片记录"]]).map(([key, name]) =>
           <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
         <button className="quiet refresh" disabled={busy} onClick={() => void perform(async () => {}, "已刷新")}>刷新</button>
       </nav>
@@ -111,19 +115,24 @@ export function Workspace() {
           <span>{dashboard.pushChannel === "wecom" && dashboard.pushReady ? "企业微信图片通道已配置" : "自动发图通道尚未配置"}</span>
           <span>{(dashboard.bytes / 1024 / 1024).toFixed(1)} / {dashboard.quotaMb} MB</span>
         </div>
+        {tab === "status" && <OperatorStatus dashboard={dashboard} />}
         {tab === "library" && <>
           <section className="card">
-            <h2>维护素材，其余交给每天的发送任务。</h2>
-            <p>待发送 <strong>{dashboard.photos.filter(photo => photo.approved && !photo.used).length}</strong> 张 · 待确认 <strong>{dashboard.photos.filter(photo => !photo.approved).length}</strong> 张</p>
-            <p className="muted">填好照片信息和文案，确认“加入待发送”。系统每天按加入顺序选一张未使用的素材，不需要逐日排期，不会自动重复旧照片。素材用完会在运行状态中提示。</p>
-            {dashboard.nextPhotoId && <div className="row">
-              <img className="mini" src={`${base}/api/media/${dashboard.nextPhotoId}/thumb`} alt="下一张待发送照片" />
-              <div><strong>下一张</strong><p className="muted">{dashboard.photos.find(photo => photo.id === dashboard.nextPhotoId)?.caption.slice(0, 60)}</p></div>
-            </div>}
-            {dashboard.settings.paused && <p className="muted">当前暂停。准备好后在「设置」选择每日时间并开启自动发送。</p>}
+            <h2>待发送队列 · {dashboard.stats.ready} 张</h2>
+            <p className="muted">FIFO：按入库时间排序，每天取一张已确认、未使用素材。以下最多显示前 100 张；不会自动重复发送。待确认：{dashboard.stats.unreviewed} 张。</p>
+            {!dashboard.queue.length && <p>队列为空。</p>}
+            <div className="table-scroll"><table className="admin-table"><thead><tr><th>顺序</th><th>照片</th><th>拍摄时间 / 地点</th><th>推送文案</th><th>操作</th></tr></thead>
+              <tbody>{dashboard.queue.map((photo, index) => <tr key={photo.id}>
+                <td>{index + 1}{index === 0 ? "（下一张）" : ""}</td>
+                <td><img className="mini" src={`${base}/api/media/${photo.id}/thumb`} alt="" /></td>
+                <td>{photo.date_label || "未填写"}<br />{photo.place_label || "未填写"}</td>
+                <td>{photo.caption.slice(0, 80)}{photo.caption.length > 80 ? "…" : ""}</td>
+                <td><a href={`#photo-${photo.id}`}>编辑</a></td>
+              </tr>)}</tbody></table></div>
           </section>
           <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
-          {!dashboard.photos.length && <p className="empty">照片库还是空的。第一封来信，从一张照片开始。</p>}
+          <h2>素材列表 · 共 {dashboard.stats.photos} 张</h2>
+          {!dashboard.photos.length && <p className="empty">暂无照片。</p>}
           <div className="photo-grid">{dashboard.photos.map(photo => <PhotoEditor key={photo.id} photo={photo} busy={busy}
             aiEnabled={dashboard.aiEnabled} perform={perform} />)}</div>
         </>}
@@ -131,11 +140,54 @@ export function Workspace() {
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
       </>}
     </>}
-    <footer>照片与文字仅限已配对的设备查看。传统宜忌与星座小笺仅作民俗、娱乐参考，不构成决策建议。</footer>
+    {role === "reader" && <footer>传统宜忌与星座小笺仅作民俗、娱乐参考，不构成决策建议。</footer>}
   </main>;
 }
 
 type Perform = (work: () => Promise<void>, message?: string) => Promise<void>;
+
+const memory = (bytes: number | null) => bytes === null ? "未提供" : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+function ResourcePanel({ dashboard: d }: { dashboard: Dashboard }) {
+  const r = d.resources;
+  return <section>
+    <h2>资源与容量</h2>
+    <table className="admin-table"><tbody>
+      <tr><th>Web 进程 RSS</th><td>{memory(r.processRss)}</td></tr>
+      <tr><th>Web 容器内存 / 上限</th><td>{memory(r.containerUsage)} / {memory(r.containerLimit)}</td></tr>
+      <tr><th>主机物理内存 / 空闲</th><td>{memory(r.hostMemoryTotal)} / {memory(r.hostMemoryFree)}（空闲值不含可回收缓存）</td></tr>
+      <tr><th>照片文件 / 配额</th><td>{memory(d.bytes)} / {d.quotaMb} MiB</td></tr>
+      <tr><th>照片所在磁盘可用 / 总量</th><td>{(r.diskFree / 1024 ** 3).toFixed(2)} / {(r.diskTotal / 1024 ** 3).toFixed(2)} GiB（共享文件系统，不是独占空间）</td></tr>
+      <tr><th>AI 本月支出估算 / 预留</th><td>USD {Number(d.aiCost).toFixed(4)}</td></tr>
+    </tbody></table>
+    <p className="muted">内存上限与照片配额是部署参数，不在网页里调整。磁盘容量与照片配额是两个独立限制。</p>
+  </section>;
+}
+
+function OperatorStatus({ dashboard: d }: { dashboard: Dashboard }) {
+  const diskLow = d.resources.diskFree < 512 * 1024 * 1024;
+  const stats = d.stats;
+  return <section className="card">
+    <h2>运行状态：{d.health.healthy && !diskLow ? "健康" : "异常"}</h2>
+    <p className={d.health.healthy && !diskLow ? "muted" : "error-text"}>{d.health.reason}{diskLow ? "；磁盘可用空间不足 512 MiB" : ""}</p>
+    <table className="admin-table"><tbody>
+      <tr><th>自动发送</th><td>{d.settings.paused ? "暂停" : "启用"} · {d.settings.send_time} · {d.settings.timezone}</td></tr>
+      <tr><th>发送通道</th><td>{d.pushChannel} · {d.pushReady && d.pushEnabled ? "已配置" : "未就绪"}</td></tr>
+      <tr><th>Worker 最近成功</th><td>{d.worker?.last_tick ? new Date(d.worker.last_tick).toLocaleString() : "无"}</td></tr>
+      <tr><th>Worker 错误码</th><td>{d.worker?.error_code || "无"}</td></tr>
+      <tr><th>AI</th><td>{d.ai.provider} / {d.ai.model} · {d.aiEnabled ? "启用" : "停用"} · API Key {d.ai.keyConfigured ? "已配置" : "未配置"}</td></tr>
+    </tbody></table>
+    <div className="metrics">{[
+      ["照片总数", stats.photos], ["待确认", stats.unreviewed], ["待发送", stats.ready],
+      ["已提交平台", stats.submitted], ["平台确认送达", stats.provider_delivered], ["失败", stats.failed],
+      ["状态未知", stats.unknown], ["正在发送 / 等待发送", stats.pending_delivery], ["导入处理中", stats.pending_import],
+    ].map(([label, count]) => <div className="metric" key={label}><span>{label}</span><strong>{count}</strong></div>)}</div>
+    <p className="muted">统计为数据库全量累计值，不依赖当前列表页数。已提交不等于实际收件；企业微信暂未提供本系统可用的已读确认。独立脚本的历史测试不计入这些计数。</p>
+    {!d.settings.paused && !stats.ready && <p className="alert error">待发送素材为 0，任务到点后无法发送。请补充并确认素材。</p>}
+    <ResourcePanel dashboard={d} />
+    <p className="muted">状态页每 30 秒刷新。</p>
+  </section>;
+}
+
 function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: boolean; aiEnabled: boolean; perform: Perform }) {
   const [preview, setPreview] = useState(false);
   const [draft, setDraft] = useState("");
@@ -147,7 +199,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
   const [saveFeedback, setSaveFeedback] = useState<{ error: boolean; message: string } | null>(null);
   useEffect(() => { setPlaceDraft(photo.place_label || photo.metadata_place || ""); }, [photo.place_label, photo.metadata_place]);
   const inferredDate = captureLabel(photo.captured_raw);
-  return <article className="card photo-card">
+  return <article className="card photo-card" id={`photo-${photo.id}`}>
     <img src={`${base}/api/media/${photo.id}/thumb`} alt="私密照片预览" loading="lazy" />
     <div className="badge">{photo.used ? "已安排或生成发送记录" : photo.approved ? "待发送" : "待确认"}</div>
     <details><summary>原始信息（仅管理者可见）</summary><p>拍摄时间：{photo.captured_raw || "未找到 EXIF 拍摄时间"}<br />GPS：{photo.latitude == null || photo.longitude == null ? "未找到" : `${photo.latitude}, ${photo.longitude}`}</p>
@@ -184,7 +236,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
       }}>根据 GPS 解析城市</button>}
       {placeSource && <p className="muted">{placeSource} · 地图数据 © OpenStreetMap contributors</p>}
       <label>当时发生了什么<textarea name="facts" defaultValue={photo.facts} maxLength={3000} placeholder="只写你确认的事实。供整理与 AI 润色使用，不直接展示给收信人。" /></label>
-      <label>给她的文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} placeholder="想对她说的话…" /></label>
+      <label>推送文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} /></label>
       <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />信息和文案已确认，加入待发送素材</label>
       <div className="actions">
         <button disabled={busy} aria-busy={saving}>{saving ? "保存中…" : "保存"}</button>
@@ -248,8 +300,8 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
   const s = d.settings;
   const [feedback, setFeedback] = useState("");
   return <section className="card">
-    <h2>每天什么时候发送？</h2>
-    <p className="muted">每天一张，从已确认、未使用的素材中按加入顺序自动选择。你不需要给照片指定日期。开启后从下一个发送时间开始，不补发过去的日子；素材用完会停止，不会反复发送旧照片。</p>
+    <h2>定时任务配置</h2>
+    <p className="muted">每天一张，FIFO。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>
     <form className="form-grid" onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       if (s.paused && form.has("enabled") && !window.confirm("确认开启每日自动发图？将从下一个发送时间开始，每天向服务器已配置的接收者发送一张已确认素材。")) return;
@@ -280,11 +332,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       {feedback && <p className="wide alert" role="status">{feedback}</p>}
     </form>
     <hr /><AISettingsPanel config={d.ai} busy={busy} perform={perform} />
-    <hr /><details><summary>高级：运行状态与成本</summary>
-    <p>最近任务成功：{d.worker?.last_tick ? new Date(d.worker.last_tick).toLocaleString() : "尚未运行"}{d.worker?.error_code && <span className="error-text">错误：{d.worker.error_code}</span>}</p>
-    <p>本月 AI 记录 / 预留：${Number(d.aiCost).toFixed(4)}</p>
-    <p className="muted">发送通道：{d.pushChannel === "wecom" ? "企业微信应用图片 → 普通微信插件" : "旧版通道（尚未切换）"}。密钥由服务器私密保存；投递状态请看「发送记录」。没有已读追踪。</p>
-    </details>
+    <hr /><ResourcePanel dashboard={d} />
   </section>;
 }
 
@@ -314,12 +362,19 @@ function SendHistory({ dashboard: d, busy, perform }: { dashboard: Dashboard; bu
 
 function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: boolean; perform: Perform }) {
   const [provider, setProvider] = useState(config.provider);
+  const [model, setModel] = useState(config.model);
   const [apiKey, setApiKey] = useState("");
   const [connection, setConnection] = useState("");
+  useEffect(() => { setProvider(config.provider); setModel(config.model); }, [config.provider, config.model]);
   return <section>
     <h2>AI 服务配置</h2>
     <p className="muted">仅管理员可配置。密钥保存在服务器私密配置中，不会回显给浏览器或提供给收信人。保存配置不会自动调用模型、发送照片或启用微信推送。</p>
-    <p className="muted">DeepSeek API Key：<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">打开官方申请页面</a> · <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noreferrer">查看模型与计费文档</a></p>
+    <p className="muted">API Key：
+      <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noreferrer">智谱开放平台</a> ·
+      <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">DeepSeek</a>
+    </p>
+    {provider === "zhipu" && <p className="muted">使用智谱「模型标准 API」Key，不是 GLM Coding Plan 套餐 Key。固定端点：open.bigmodel.cn/api/paas/v4/chat/completions。
+      <a href="https://docs.bigmodel.cn/cn/api/introduction" target="_blank" rel="noreferrer">官方接口说明</a></p>}
     <form key={JSON.stringify(config)} className="form-grid" onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       void perform(async () => {
@@ -333,9 +388,12 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
       }, "AI 配置已保存；密钥不会回显，可先测试连接");
     }}>
       <label>供应商<select name="provider" value={provider} onChange={event => {
-        setProvider(event.target.value === "openai" ? "openai" : "deepseek"); setApiKey(""); setConnection("");
-      }}><option value="deepseek">DeepSeek（官方 API）</option><option value="openai">OpenAI（官方 API）</option></select></label>
-      <label>模型 ID<input name="model" defaultValue={config.model} required maxLength={120} placeholder="按供应商模型文档填写" /></label>
+        const next = event.target.value;
+        if (next !== "zhipu" && next !== "openai" && next !== "deepseek") return;
+        setProvider(next); setModel(next === "zhipu" ? "glm-5.3" : next === "openai" ? "gpt-4o-mini" : "deepseek-flash");
+        setApiKey(""); setConnection("");
+      }}><option value="zhipu">智谱 GLM（标准 API）</option><option value="deepseek">DeepSeek（官方 API）</option><option value="openai">OpenAI（官方 API）</option></select></label>
+      <label>模型 ID<input name="model" value={model} onChange={event => setModel(event.target.value)} required maxLength={120} placeholder="按账号可用模型填写" /></label>
       <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
         <input name="apiKey" type="password" autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={512} placeholder={config.keyConfigured ? "填写新密钥以替换；不会显示旧值" : "粘贴你的 API Key"} /></label>
       <label>输入单价（美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.inputRate} required /></label>
@@ -348,7 +406,8 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
     </form>
     <button className="quiet" disabled={busy || !config.keyConfigured} onClick={() => void perform(async () => {
       const result = await api<{ message: string }>("ai/test", { confirm: true }); setConnection(result.message);
-    }, "AI 连接检查完成")}>测试已保存配置（不生成文案）</button>
+    }, "AI 连接检查完成")}>{config.provider === "zhipu" ? "验证智谱配置（少量计费测试）" : "测试已保存配置（模型列表）"}</button>
+    {config.provider === "zhipu" && <p className="muted">智谱验证会用固定文本请求一次模型，消耗少量 tokens，计入预算；不发送照片或素材说明。请先填写单价与预算。</p>}
     {connection && <p role="status">{connection}</p>}
     <p className="muted">生成草稿只发送你主动同意的事件说明，不上传照片或 GPS；生成结果仍由你审核。预算按 token 单价估算，并非供应商账单的硬性封顶。</p>
   </section>;

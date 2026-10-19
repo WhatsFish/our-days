@@ -122,6 +122,26 @@ try {
     assert.equal(row.gps_place_guess, "Japan · Tokyo · Sample City");
     globalThis.fetch = async () => { throw new Error("Cache must avoid any new external request"); };
     assert.equal((await adminPost("photo/place", { id: photoId, consent: true })).status, 200);
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    assert.equal((await adminPost("ai/config", {
+      ...settings, provider: "zhipu", model: "glm-5.3", apiKey: "synthetic-zhipu-key", enabled: false,
+    })).status, 200);
+    globalThis.fetch = async (input, init) => {
+      assert.equal(String(input), "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+      const payload = JSON.parse(String(init?.body));
+      assert.equal(payload.model, "glm-5.3");
+      assert.equal(payload.max_tokens, 32);
+      assert.equal(payload.thinking.type, "disabled");
+      assert.equal(JSON.stringify(payload).includes("A confirmed synthetic memory"), false);
+      assert.equal(init?.redirect, "error");
+      return Response.json({ choices: [{ message: { content: "OK" } }], usage: { prompt_tokens: 10, completion_tokens: 1 } });
+    };
+    const zhipuTest = await adminPost("ai/test", { confirm: true });
+    assert.equal(zhipuTest.status, 200);
+    const lastAI = (await pool.query("SELECT provider,task,cost_usd FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
+    assert.equal(lastAI.provider, "zhipu");
+    assert.equal(lastAI.task, "connection_test");
+    assert.ok(Number(lastAI.cost_usd) > 0);
   } finally { globalThis.fetch = originalFetch; }
   assert.equal((await adminPost("ai/config", { ...settings, enabled: false, apiKey: "", clearKey: true })).status, 200);
   const dashboard = await GET(new NextRequest("https://example.com/our-days/api/admin", { headers: { Cookie: `our_days_session=${token}` } }),
@@ -130,6 +150,12 @@ try {
   const publicDashboard = await dashboard.text();
   assert.equal(publicDashboard.includes("synthetic-secret"), false);
   assert.equal(JSON.parse(publicDashboard).ai.keyConfigured, false);
+  const status = JSON.parse(publicDashboard);
+  assert.equal(typeof status.stats.photos, "number");
+  assert.equal(typeof status.stats.submitted, "number");
+  assert.equal(status.resources.processRss > 0, true);
+  assert.equal(status.resources.diskFree > 0, true);
+  assert.equal(Array.isArray(status.queue), true);
   await pool.query("DELETE FROM photos WHERE id=$1", [photoId]);
   console.log("Receipt integration passed: signature, mass counters, zero-recipient success, deduplication, validation, template regression.");
   console.log("AI settings integration passed: admin-only save, no key echoes, blank preservation, supplier-change guard, mock generation, cost recording, connection test and key deletion.");

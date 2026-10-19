@@ -48,6 +48,9 @@ test("saved AI config is loaded per call and connection test sends no photo fact
     await assert.rejects(testAIConnection(async () => Response.json({ data: [{ id: "other" }] })), /没有所填模型/);
     await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, enabled: false }));
     assert.equal((await runtimeAI()).enabled, false);
+    await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, provider: "zhipu", model: "glm-5.3" }));
+    assert.equal((await runtimeAI()).url, "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+    assert.equal(aiConfigInput.safeParse({ ...config, provider: "zhipu", model: "glm-5.3" }).success, true);
   } finally {
     if (previous === undefined) delete process.env.PRIVATE_CONFIG_DIR; else process.env.PRIVATE_CONFIG_DIR = previous;
     await unlink(path.join(dir, "ai.json")); await rmdir(dir);

@@ -129,7 +129,7 @@ export function UploadPanel({ jobs, busy, perform, refresh }: Props) {
   const pending = jobs.filter(job => ["queued", "processing"].includes(job.status)).length;
   const recent = jobs.filter(job => ["done", "failed"].includes(job.status)).slice(0, 5);
   return <section className="card">
-    <h2>先收集，再慢慢写。</h2>
+    <h2>上传素材</h2>
     <p className="muted">支持单张、多张 JPEG / PNG / WebP 或 ZIP。单文件 25MB；ZIP 最多 100 条目、解压总量 100MB。HEIC 暂不支持。</p>
     <form onSubmit={submit}>
       <label>选择照片或压缩包<input ref={input} name="photos" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.zip" required

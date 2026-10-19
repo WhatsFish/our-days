@@ -7,7 +7,7 @@ import { transaction } from "./db";
 
 const fields = z.object({
   enabled: z.boolean(),
-  provider: z.enum(["deepseek", "openai"]),
+  provider: z.enum(["deepseek", "openai", "zhipu"]),
   model: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9._:/-]+$/),
   inputRate: z.number().finite().min(0).max(10000),
   outputRate: z.number().finite().min(0).max(10000),
@@ -80,7 +80,8 @@ export async function runtimeAI(): Promise<AIConfiguration> {
   const config = await stored();
   if (config) return {
     ...config,
-    url: config.provider === "deepseek" ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions",
+    url: config.provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
+      config.provider === "deepseek" ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions",
   };
   return {
     enabled: process.env.AI_ENABLED === "true", provider: process.env.AI_PROVIDER ?? "foundry",
@@ -93,6 +94,11 @@ export async function runtimeAI(): Promise<AIConfiguration> {
 export async function testAIConnection(fetcher: typeof fetch = fetch) {
   const config = await stored();
   if (!config?.apiKey) throw new AppError(400, "ai_key", "请先保存 API Key");
+  if (config.provider === "zhipu") {
+    const { probeAIText } = await import("./ai");
+    await probeAIText();
+    return { ok: true, message: "智谱模型调用成功（仅固定测试文本，消耗已计入本月预算；没有发送照片或回忆说明）" };
+  }
   const url = config.provider === "deepseek" ? "https://api.deepseek.com/models" : "https://api.openai.com/v1/models";
   let response: Response;
   try {

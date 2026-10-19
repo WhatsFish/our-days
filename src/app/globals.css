@@ -66,6 +66,15 @@ summary { cursor: pointer; padding: 7px 0; }
 .empty { text-align: center; padding: 65px 15px; color: var(--muted); }
 hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
 footer { border-top: 1px solid var(--line); margin-top: 50px; padding-top: 22px; font-size: 11px; }
+.table-scroll { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.admin-table th, .admin-table td { border-bottom: 1px solid var(--line); padding: 12px 10px; vertical-align: top; }
+.admin-table th { font-weight: 600; white-space: nowrap; }
+.admin-table a { color: var(--green); text-decoration: underline; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin: 20px 0; }
+.metric { border: 1px solid var(--line); border-radius: 5px; padding: 14px; }
+.metric span { display: block; color: var(--muted); font-size: 12px; }
+.metric strong { font: 600 26px ui-monospace, monospace; }
 @media (max-width: 720px) {
   .shell { padding: 26px 16px; }
   h1 { font-size: 34px; }

@@ -46,7 +46,16 @@ with optional WeChat notification. No personal content is included in this repos
 
 ## Runtime
 
-The administrator UI has three destinations: **素材库**, **发送记录**, **设置**.
+The administrator UI is an operator console with four destinations:
+**运行状态**, **队列与素材**, **发送记录**, **API 与系统配置**.
+It defaults to health/counters/resources, not the reader archive. Decorative
+copy and reader disclaimers are excluded from administrator pages. Health
+requires a successful worker tick within five minutes, not just HTTP liveness.
+Photo, queue and delivery counts are full-database aggregates; platform-accepted
+submissions and confirmed delivery have separate counters. The ordered queue
+shows the first 100 approved unused photos, independently of the photo editor's
+list limit. Resource reporting labels process RSS, cgroup container usage/limit,
+host free physical RAM, media quota and shared-filesystem disk capacity.
 Upload and review photos/captions, select one daily send time and explicitly
 enable automatic sending. There is no required per-photo scheduling step.
 Timezone defaults to Asia/Shanghai and is an advanced option, not a separate
@@ -355,13 +364,25 @@ does not redirect an already-created delivery to a different provider.
 ## AI privacy and costs
 
 Administrators can open **Settings / AI service configuration** to save a
-DeepSeek or OpenAI API key, model ID, USD-per-million input/output rates and a
+Zhipu, DeepSeek or OpenAI API key, model ID, USD-per-million input/output rates and a
 monthly budget, without editing environment files. Only the official fixed
 HTTPS endpoints are available; arbitrary client-supplied URLs are not accepted.
 Keys are write-only in the UI: a blank field preserves an existing key, deletion
 is explicit, and changing providers requires a matching new key. Saving does not
-call the provider or enable messaging. The explicit connection test only fetches
-the provider's model list, without any photo or caption.
+call the provider or enable messaging. DeepSeek/OpenAI connection tests fetch
+the model list without any photo or caption. Zhipu is not assumed to implement
+the same model-list endpoint: its explicitly labelled test performs one short
+chat request using fixed synthetic text, records usage and reserves budget in
+the same cost mechanism as generation. `ai_events.task` distinguishes caption
+generation and connection tests.
+
+Zhipu uses the official standard endpoint
+`https://open.bigmodel.cn/api/paas/v4/chat/completions` with Bearer authentication.
+Obtain a **model standard API** key at
+<https://bigmodel.cn/usercenter/proj-mgmt/apikeys>; Coding Plan keys are separate
+products and not used for this application. See
+<https://docs.bigmodel.cn/cn/api/introduction>. The model ID is editable to match
+the account. No photos or real story facts are sent by a connection test.
 
 DeepSeek's official key portal is <https://platform.deepseek.com/api_keys>.
 Use the provider's current model and pricing documentation rather than stale

@@ -4,8 +4,8 @@ import "./globals.css";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "拾光 · 私人来信",
-  description: "把平凡的日子，慢慢收藏。",
+  title: "照片推送管理",
+  description: "Private photo delivery administration",
   robots: { index: false, follow: false },
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {

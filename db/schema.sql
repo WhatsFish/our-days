@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS ai_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS editions_due ON editions(send_at) WHERE status='scheduled';
+ALTER TABLE ai_events ADD COLUMN IF NOT EXISTS task text NOT NULL DEFAULT 'caption';
 CREATE INDEX IF NOT EXISTS imports_queued ON imports(created_at) WHERE status IN ('queued','processing');
 CREATE OR REPLACE VIEW service_health AS
 SELECT
