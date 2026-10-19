@@ -332,17 +332,17 @@ The card uses an instant-photo style: an unbranded white top/side border,
 full-aspect photograph and a wider bottom paper area for handwriting. Portrait
 input is fitted within 968x1900 pixels and the canvas grows with the image.
 The photograph is not cropped into a landscape box. Capture date/place and
-caption appear below it using bundled Long Cang handwriting, with a Chinese
+caption appear below it using bundled ZCOOL KuaiLe playful hand-drawn lettering, with a Chinese
 fallback for missing glyphs. No generated title, service name or delivery date
 is added above the photograph. Landscape cards are correspondingly shorter.
 Almanac content is omitted even when a legacy snapshot contains it;
 the administrator switch is hidden and the live setting is disabled.
 
-`assets/fonts/LongCang-Regular.ttf` is distributed under the SIL Open Font
-License in `assets/fonts/OFL.txt`. Source:
-Google Fonts `ofl/longcang` at commit
-`20da2e7644bac5325abbc9f30848ae3162bfc974`, SHA-256
-`e5bf2c3f24ef2327c6f136d8f73e2f9dfdf44896fdbeb35a9515f44777bb91bc`.
+`assets/fonts/ZCOOLKuaiLe-Regular.ttf` is distributed under the SIL Open Font
+License in `assets/fonts/ZCOOLKuaiLe-OFL.txt`. Source:
+Google Fonts `ofl/zcoolkuaile` at commit
+`a606d6f3181c62b792c8c1463d309c6a8abb8a12`, SHA-256
+`812a6fc1fe54b6d73a419245c32dfeba8aa33104d5be90d1cf6af082007cb71d`.
 The worker includes the font and its Fontconfig configuration; it does not
 download fonts or send photograph contents to a font service at runtime.
 
@@ -358,6 +358,8 @@ second run. It does not call AI, consume stock, create daily history records or
 change schedules. The private state records IDs, dimensions, hashes, timestamps
 and provider acceptance, not captions, coordinates or credentials. Actual
 ordinary-WeChat receipt must still be confirmed by the operator.
+For a single style revision, `--send-one` uses the same protected runner for only
+the first approved unused photo, rather than sending another two-image batch.
 
 ## PushPlus alternative
 

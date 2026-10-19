@@ -9,8 +9,12 @@ import { renderPhotoCard } from "../src/lib/photo-card";
 import { READY_PHOTOS_BASE_SQL } from "../src/lib/photo-queue";
 import { sendWecomImage, WecomSendError } from "../src/lib/wecom-image.mjs";
 
-const send = process.argv.includes("--send-two");
-if (process.argv.includes("--check") && send) throw new Error("Choose --check or --send-two");
+const one = process.argv.includes("--send-one");
+const count = one ? 1 : 2;
+const send = one || process.argv.includes("--send-two");
+if ((process.argv.includes("--check") && send) || (one && process.argv.includes("--send-two"))) {
+  throw new Error("Choose --check, --send-one or --send-two");
+}
 const stateFile = process.env.E2E_STATE_FILE;
 const label = process.env.E2E_LABEL ?? "E2E";
 if (!/^[\p{L}\p{N} ._-]{1,24}$/u.test(label)) throw new Error("Invalid E2E display label");
@@ -27,13 +31,13 @@ try {
   locked = (await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(7316,1) AS locked")).rows[0].locked;
   if (!locked) throw new Error("Worker is busy; no E2E messages submitted");
   const [settings] = (await client.query<Settings>("SELECT * FROM settings WHERE id=true")).rows;
-  const photos = (await client.query<Photo>(`${READY_PHOTOS_BASE_SQL} LIMIT 2`)).rows;
-  if (photos.length !== 2) throw new Error("Need exactly two available approved photos; no messages submitted");
+  const photos = (await client.query<Photo>(`${READY_PHOTOS_BASE_SQL} LIMIT $1`, [count])).rows;
+  if (photos.length !== count) throw new Error(`Need ${count} available approved photos; no messages submitted`);
   const cards: Buffer[] = [];
   for (const [index, photo] of photos.entries()) {
     if (!photo.caption.trim()) throw new Error("Missing approved caption; no messages submitted");
     const snapshot = await buildSnapshot(photo, settings, localDay(new Date(), settings.timezone));
-    const image = await renderPhotoCard(snapshot, `${localDay(new Date(), settings.timezone)} · ${label} ${index + 1}/2`);
+    const image = await renderPhotoCard(snapshot, `${localDay(new Date(), settings.timezone)} · ${label} ${index + 1}/${count}`);
     const meta = await sharp(image).metadata();
     if (meta.format !== "jpeg" || meta.width !== 1080 || !meta.height || meta.exif || image.length > 2 * 1024 * 1024) {
       throw new Error("Rendered card failed validation; no messages submitted");
@@ -41,7 +45,7 @@ try {
     cards.push(image);
     state.items.push({ photo_id: photo.id, number: index + 1, sha256: createHash("sha256").update(image).digest("hex"),
       width: meta.width, height: meta.height, bytes: image.length, status: "prepared" });
-    console.log(`Prepared E2E ${index + 1}/2: ${meta.width}x${meta.height}, ${image.length} bytes, no EXIF on output`);
+    console.log(`Prepared E2E ${index + 1}/${count}: ${meta.width}x${meta.height}, ${image.length} bytes, no EXIF on output`);
   }
   if (send) {
     await writeFile(stateFile!, JSON.stringify(state, null, 2) + "\n", { flag: "wx", mode: 0o600 });
@@ -62,7 +66,7 @@ try {
         });
         state.items[index].status = "accepted"; state.items[index].record_id = result.msgid;
         await save();
-        console.log(`E2E ${index + 1}/2 accepted by WeCom; actual phone receipt still unconfirmed`);
+        console.log(`E2E ${index + 1}/${count} accepted by WeCom; actual phone receipt still unconfirmed`);
       } catch (error) {
         state.items[index].status = error instanceof WecomSendError && error.unknown ? "unknown" : "failed";
         state.items[index].error_code = error instanceof WecomSendError && error.unknown ? "submission_unknown" : "provider_rejected";
@@ -71,7 +75,7 @@ try {
       }
     }
   }
-  console.log(send ? "Two manual E2E submissions completed. Daily queue and schedule unchanged; no AI calls." :
+  console.log(send ? `${count} manual E2E submission(s) completed. Daily queue and schedule unchanged; no AI calls.` :
     "Render-only validation passed. No messages sent; daily queue and schedule unchanged.");
 } catch (error) {
   console.error(error instanceof Error ? error.message : "E2E failure");

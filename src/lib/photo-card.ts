@@ -26,7 +26,7 @@ export function wrapCardText(text: string, width = 26) {
 export async function renderPhotoCard(snapshot: Snapshot, _day: string, input?: Buffer) {
   process.env.XDG_CACHE_HOME ??= "/tmp/our-days-fontcache";
   process.env.FONTCONFIG_FILE ??= path.resolve("assets/fonts/fonts.conf");
-  try { await access(path.resolve("assets/fonts/LongCang-Regular.ttf")); }
+  try { await access(path.resolve("assets/fonts/ZCOOLKuaiLe-Regular.ttf")); }
   catch { throw new AppError(503, "card_font_missing", "手写字体资源缺失，请检查部署"); }
   await mkdir(process.env.XDG_CACHE_HOME, { recursive: true, mode: 0o700 });
   const { data: photo, info: dimensions } = await sharp(input ?? await readFile(mediaPath(snapshot.photo_id, "display.webp")))
@@ -35,20 +35,20 @@ export async function renderPhotoCard(snapshot: Snapshot, _day: string, input?: 
   const photoX = Math.round((1080 - dimensions.width) / 2);
   const photoY = 56;
   const photoBottom = photoY + dimensions.height;
-  const caption = wrapCardText(snapshot.caption, 19);
-  const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 27);
+  const caption = wrapCardText(snapshot.caption, 20);
+  const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 29);
   const extras = [snapshot.weather === "未配置天气城市" ? "" : snapshot.weather, snapshot.star_note]
-    .filter(Boolean).flatMap(text => wrapCardText(text, 29));
+    .filter(Boolean).flatMap(text => wrapCardText(text, 30));
   let y = photoBottom + 64;
   const text: string[] = [];
   function add(lines: string[], size: number, lineHeight: number, color: string) {
     for (const line of lines) { text.push(`<text x="56" y="${y}" font-size="${size}" fill="${color}">${xmlEscape(line)}</text>`); y += lineHeight; }
   }
-  if (details.length && details.some(Boolean)) { add(details, 34, 46, "#68645f"); y += 12; }
-  add(caption, 48, 66, "#343638");
+  if (details.length && details.some(Boolean)) { add(details, 30, 44, "#68645f"); y += 12; }
+  add(caption, 44, 62, "#40464b");
   if (extras.length) {
     y += 14;
-    add(extras, 32, 44, "#68645f");
+    add(extras, 30, 42, "#68645f");
   }
   y = Math.max(y + 56, photoBottom + 270);
   // Long reviewed captions stay complete; reject rather than silently truncate or send unreadable cards.
@@ -56,7 +56,7 @@ export async function renderPhotoCard(snapshot: Snapshot, _day: string, input?: 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="${y}">
     <rect width="100%" height="100%" fill="#fffefa"/>
     <rect x="1" y="1" width="1078" height="${y - 2}" fill="none" stroke="#e5e2da" stroke-width="2"/>
-    <g font-family="'Long Cang','Noto Sans CJK SC',sans-serif">
+    <g font-family="'ZCOOL KuaiLe','Noto Sans CJK SC',sans-serif">
       <image x="${photoX}" y="${photoY}" width="${dimensions.width}" height="${dimensions.height}" href="data:image/jpeg;base64,${photo.toString("base64")}"/>
       ${text.join("")}
     </g></svg>`;
