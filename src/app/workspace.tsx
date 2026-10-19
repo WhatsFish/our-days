@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
+import type { PublicAI } from "../lib/ai-config";
+import { captureLabel } from "../lib/photo-metadata";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -10,6 +12,7 @@ type Dashboard = {
   photos: Photo[]; editions: Edition[]; imports: ImportJob[]; deliveries: Delivery[];
   settings: Settings; worker: { last_tick: string | null; error_code: string | null } | null;
   bytes: number; quotaMb: number; pushEnabled: boolean; pushReady: boolean; pushChannel: string; aiEnabled: boolean; aiCost: string;
+  ai: PublicAI;
 };
 const base = "/our-days";
 const labels: Record<string, string> = {
@@ -158,11 +161,15 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
   const [draft, setDraft] = useState("");
   const [consent, setConsent] = useState(false);
   const [style, setStyle] = useState("温柔");
+  const [placeDraft, setPlaceDraft] = useState(photo.place_label || photo.metadata_place || "");
+  const [placeSource, setPlaceSource] = useState("");
+  useEffect(() => { setPlaceDraft(photo.place_label || photo.metadata_place || ""); }, [photo.place_label, photo.metadata_place]);
+  const inferredDate = captureLabel(photo.captured_raw);
   return <article className="card photo-card">
     <img src={`${base}/api/media/${photo.id}/thumb`} alt="私密照片预览" loading="lazy" />
     <div className="badge">{photo.approved ? "已审核" : "待审核"} · 已排期/使用 {photo.used} 次</div>
     <details><summary>原始信息（仅管理者可见）</summary><p>拍摄时间：{photo.captured_raw || "未找到 EXIF 拍摄时间"}<br />GPS：{photo.latitude == null || photo.longitude == null ? "未找到" : `${photo.latitude}, ${photo.longitude}`}</p>
-      <p className="muted">未自动反查地址。核实时间、时区和地点后填写下方；未知可留空或写“大约某年”。</p></details>
+      <p className="muted">有 EXIF 拍摄时间或内嵌地点时自动预填，不按服务器时区转换。GPS 不会自动发送给外部地图，需点击下方按钮并同意。</p></details>
     <form key={`${photo.caption}:${photo.date_label}:${photo.place_label}:${photo.approved}`} onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       void perform(async () => { await api("photo", {
@@ -170,8 +177,19 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
         facts: value(form, "facts"), caption: value(form, "caption"), approved: form.has("approved"),
       }); });
     }}>
-      <label>拍摄时间（确认后的描述）<input name="date_label" defaultValue={photo.date_label} maxLength={80} placeholder="例如：大约 2019 年秋天" /></label>
-      <label>地点<input name="place_label" defaultValue={photo.place_label} maxLength={120} placeholder="城市 / 景点；不知道可以留空" /></label>
+      <label>拍摄时间（可修改）<input name="date_label" defaultValue={photo.date_label || inferredDate} maxLength={80} placeholder="例如：大约 2019 年秋天" /></label>
+      <p className="muted">{inferredDate ? "已从 EXIF 拍摄时间提取候选，请核对；缺失的时区不作推断。" : "照片未提供可识别的原始拍摄时间；微信转发、截图或导出可能移除 EXIF。建议上传相机原图，或手动补充。"}</p>
+      <label>地点<input name="place_label" value={placeDraft} onChange={event => setPlaceDraft(event.target.value)} maxLength={120} placeholder="城市 / 景点；不知道可以留空" /></label>
+      <p className="muted">{photo.metadata_place ? "已提取照片内嵌地点，请核对。" : photo.latitude !== null && photo.longitude !== null ? "照片含 GPS，可按需解析为城市；不会从图片画面猜测地址。" : "照片未提供 GPS 或内嵌地点，无法自动还原地址。"}</p>
+      {photo.latitude !== null && photo.longitude !== null && <button type="button" className="quiet" disabled={busy} onClick={() => {
+        if (window.confirm("将照片 GPS 四舍五入到约百米精度后，发送给 OpenStreetMap / Nominatim 解析城市？不发送原图。候选地点需核对后手动保存。")) {
+          void perform(async () => {
+            const result = await api<{ place: string; source: string }>("photo/place", { id: photo.id, consent: true });
+            setPlaceDraft(result.place); setPlaceSource(result.source);
+          }, "城市候选已填入；核对后点击照片的保存按钮");
+        }
+      }}>根据 GPS 解析城市</button>}
+      {placeSource && <p className="muted">{placeSource} · 地图数据 © OpenStreetMap contributors</p>}
       <label>当时发生了什么<textarea name="facts" defaultValue={photo.facts} maxLength={3000} placeholder="只写你确认的事实。供整理与 AI 润色使用，不直接展示给收信人。" /></label>
       <label>给她的文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} placeholder="想对她说的话…" /></label>
       <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />我已核对照片、时间、地点和文案，允许排期</label>
@@ -179,7 +197,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
     </form>
     {preview && <Letter snapshot={{ photo_id: photo.id, date_label: photo.date_label, place_label: photo.place_label, caption: photo.caption, weather: "", almanac: "", star_note: "" }} title="来信预览" />}
     <details><summary>AI 帮我润色（可选）</summary>
-      <p className="muted">先保存事件说明。只发送已保存的说明文字，不发送原图；AI 候选不会自动写入或批准。</p>
+      <p className="muted">先保存事件说明。只发送已保存的说明文字，不发送原图；AI 候选不会自动写入或批准。API Key 和模型请在「设置与投递 → AI 服务配置」填写。</p>
       <label>风格<select value={style} onChange={event => setStyle(event.target.value)}><option>温柔</option><option>朴实</option><option>俏皮</option></select></label>
       <label className="check"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />本次同意把已保存的说明交给配置的 AI 服务</label>
       <button disabled={busy || !aiEnabled || !consent} onClick={() => void perform(async () => {
@@ -247,6 +265,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       <label className="wide">每日小笺（可留空；首版由你编辑，不伪造运势）<textarea name="star_note" maxLength={300} defaultValue={s.star_note} /></label>
       <button disabled={busy}>保存设置</button>
     </form>
+    <hr /><AISettingsPanel config={d.ai} busy={busy} perform={perform} />
     <hr /><h2>运行状态</h2>
     <p>最近任务成功：{d.worker?.last_tick ? new Date(d.worker.last_tick).toLocaleString() : "尚未运行"}{d.worker?.error_code && <span className="error-text">错误：{d.worker.error_code}</span>}</p>
     <p>本月 AI 记录 / 预留：${Number(d.aiCost).toFixed(4)}</p>
@@ -257,5 +276,47 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
         if (window.confirm("确认该消息未送达并重试？仅支持当天消息，真实微信可能收到通知。")) void perform(async () => { await api("delivery/retry", { id: delivery.id, confirm: true }); }, "已进入重试队列");
       }}>确认后重试</button>}
     </div>)}</div>
+  </section>;
+}
+
+function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: boolean; perform: Perform }) {
+  const [provider, setProvider] = useState(config.provider);
+  const [apiKey, setApiKey] = useState("");
+  const [connection, setConnection] = useState("");
+  return <section>
+    <h2>AI 服务配置</h2>
+    <p className="muted">仅管理员可配置。密钥保存在服务器私密配置中，不会回显给浏览器或提供给收信人。保存配置不会自动调用模型、发送照片或启用微信推送。</p>
+    <p className="muted">DeepSeek API Key：<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">打开官方申请页面</a> · <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noreferrer">查看模型与计费文档</a></p>
+    <form key={JSON.stringify(config)} className="form-grid" onSubmit={event => {
+      event.preventDefault(); const form = new FormData(event.currentTarget);
+      void perform(async () => {
+        await api("ai/config", {
+          provider, apiKey, enabled: form.has("enabled"), clearKey: form.has("clearKey"),
+          model: value(form, "model"),
+          inputRate: Number(value(form, "inputRate")), outputRate: Number(value(form, "outputRate")),
+          monthlyLimit: Number(value(form, "monthlyLimit")),
+        });
+        setApiKey(""); setConnection("");
+      }, "AI 配置已保存；密钥不会回显，可先测试连接");
+    }}>
+      <label>供应商<select name="provider" value={provider} onChange={event => {
+        setProvider(event.target.value === "openai" ? "openai" : "deepseek"); setApiKey(""); setConnection("");
+      }}><option value="deepseek">DeepSeek（官方 API）</option><option value="openai">OpenAI（官方 API）</option></select></label>
+      <label>模型 ID<input name="model" defaultValue={config.model} required maxLength={120} placeholder="按供应商模型文档填写" /></label>
+      <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
+        <input name="apiKey" type="password" autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={512} placeholder={config.keyConfigured ? "填写新密钥以替换；不会显示旧值" : "粘贴你的 API Key"} /></label>
+      <label>输入单价（美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.inputRate} required /></label>
+      <label>输出单价（美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.outputRate} required /></label>
+      <p className="muted wide">按官方当前价格填写美元单价；若输入有缓存价，使用较高的未命中价作保守估算。不自动猜价格，也不进行人民币换算。</p>
+      <label>每月预算上限（美元）<input name="monthlyLimit" type="number" min="0.01" max="1000" step="any" defaultValue={config.monthlyLimit} required /></label>
+      <label className="check"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用文字文案生成（每次生成仍需单独同意）</label>
+      <label className="check wide"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label>
+      <button disabled={busy}>保存 AI 配置</button>
+    </form>
+    <button className="quiet" disabled={busy || !config.keyConfigured} onClick={() => void perform(async () => {
+      const result = await api<{ message: string }>("ai/test", { confirm: true }); setConnection(result.message);
+    }, "AI 连接检查完成")}>测试已保存配置（不生成文案）</button>
+    {connection && <p role="status">{connection}</p>}
+    <p className="muted">生成草稿只发送你主动同意的事件说明，不上传照片或 GPS；生成结果仍由你审核。预算按 token 单价估算，并非供应商账单的硬性封顶。</p>
   </section>;
 }

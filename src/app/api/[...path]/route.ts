@@ -9,6 +9,8 @@ import { enqueueUpload, mediaPath, storageBytes, uploadLimit } from "../../../li
 import { suggestCaption } from "../../../lib/ai";
 import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../../lib/wechat";
 import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
+import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../../lib/ai-config";
+import { lookupPhotoPlace } from "../../../lib/photo-place";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,7 +87,7 @@ export async function GET(request: NextRequest, context: Context) {
     }
     await requireRole(request, true);
     if (route === "admin") {
-      const [photos, editions, imports, deliveries, settings, worker, bytes, costs] = await Promise.all([
+      const [photos, editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime] = await Promise.all([
         query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used
                FROM photos p ORDER BY created_at DESC LIMIT 1000`),
         query("SELECT id,day::text,photo_id,title,send_at,notify,status,snapshot FROM editions ORDER BY day DESC LIMIT 366"),
@@ -94,6 +96,7 @@ export async function GET(request: NextRequest, context: Context) {
         query<Settings>("SELECT * FROM settings WHERE id=true"),
         query("SELECT * FROM worker_state"), storageBytes(),
         query("SELECT coalesce(sum(cost_usd),0)::text AS total FROM ai_events WHERE created_at>=date_trunc('month',now())"),
+        aiSettings(), runtimeAI(),
       ]);
       return json({ photos, editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
         quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total,
@@ -101,7 +104,7 @@ export async function GET(request: NextRequest, context: Context) {
         pushChannel: process.env.PUSH_CHANNEL ?? "wechat-test",
         pushReady: (process.env.PUSH_CHANNEL ?? "wechat-test") === "wechat-test" ? wechatReady() :
           !!(process.env.PUSHPLUS_TOKEN && process.env.PUSHPLUS_TO && process.env.PUSHPLUS_SECRET_KEY),
-        aiEnabled: process.env.AI_ENABLED === "true" });
+        aiEnabled: aiRuntime.enabled, ai });
     }
     throw new AppError(404, "not_found", "接口不存在");
   } catch (error) { return failure(error); }
@@ -177,6 +180,15 @@ export async function POST(request: NextRequest, context: Context) {
       return json({ id }, 202);
     }
     const body = await parseJson(request);
+    if (route === "ai/config") return json(await saveAISettings(body));
+    if (route === "ai/test") {
+      z.object({ confirm: z.literal(true) }).parse(body);
+      return json(await testAIConnection());
+    }
+    if (route === "photo/place") {
+      const value = z.object({ id: uuid, consent: z.literal(true) }).parse(body);
+      return json(await lookupPhotoPlace(value.id));
+    }
     if (route === "photo") {
       const value = photoEdit.parse(body);
       const rows = await query(

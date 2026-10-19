@@ -15,6 +15,7 @@ if (process.env.PG_DB !== "our_days_test" || process.env.PG_HOST !== "127.0.0.1"
   throw new Error("Integration tests require the dedicated local our_days_test database on port 54326");
 }
 const media = await mkdtemp(path.join(tmpdir(), "our-days-synthetic-"));
+const privateConfig = await mkdtemp(path.join(tmpdir(), "our-days-ai-synthetic-"));
 const containerTest = process.env.OUR_DAYS_CONTAINER_TEST === "true";
 const origin = "http://127.0.0.1:3316";
 const base = `${origin}/our-days`;
@@ -24,15 +25,20 @@ Object.assign(process.env, {
   READER_PASSWORD_HASH: hashPassword("synthetic-reader-code"),
   PUSH_ENABLED: "false", PUSH_CHANNEL: "wechat-test", AI_ENABLED: "false",
   WECHAT_VERIFY_TOKEN: "synthetic-verification", WECHAT_OPEN_ID: "synthetic-recipient",
+  PRIVATE_CONFIG_DIR: privateConfig,
 });
 const dockerEnvironment = [
   "PG_HOST", "PG_PORT", "PG_USER", "PG_DB", "PUBLIC_URL", "ADMIN_PASSWORD_HASH", "READER_PASSWORD_HASH",
   "MEDIA_QUOTA_MB", "PUSH_ENABLED", "PUSH_CHANNEL", "AI_ENABLED", "WECHAT_VERIFY_TOKEN", "WECHAT_OPEN_ID",
 ].flatMap(key => ["--env", `${key}=${process.env[key]}`]);
-if (containerTest) await chmod(media, 0o777); // Only synthetic fixtures; container runs as UID 10001.
+if (containerTest) {
+  await chmod(media, 0o777); // Only synthetic fixtures; container runs as UID 10001.
+  await chmod(privateConfig, 0o777);
+}
 const dockerOptions = [
   "run", "--rm", "--network", "host", "--memory", "512m",
   ...dockerEnvironment, "--env", "MEDIA_ROOT=/media", "--volume", `${media}:/media`,
+  "--env", "PRIVATE_CONFIG_DIR=/config", "--volume", `${privateConfig}:/config`,
 ];
 async function tick() {
   if (!containerTest) return localTick();
@@ -193,4 +199,6 @@ try {
   await pool.end();
   for (const file of await readdir(media)) await unlink(path.join(media, file));
   await rmdir(media);
+  for (const file of await readdir(privateConfig)) await unlink(path.join(privateConfig, file));
+  await rmdir(privateConfig);
 }

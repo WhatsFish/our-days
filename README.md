@@ -25,9 +25,10 @@ with optional WeChat notification. No personal content is included in this repos
 - No production deployment or real-account delivery is implied by local tests.
   A test account is not a formally certified service account.
 - Only static JPEG, PNG and WebP are decoded. Convert HEIC/Live Photos before
-  upload. GPS is extracted for administrator review; reverse geocoding is not
-  enabled and coordinates are never published.
-- A date/place description must be reviewed. Missing EXIF is never replaced
+  upload. Embedded EXIF capture time and descriptive IPTC/XMP places are prefilled;
+  GPS can be resolved to a city only after explicit administrator consent.
+  Coordinates are never published in the reader page.
+- Prefilled date/place descriptions must still be reviewed. Missing EXIF is never replaced
   with file modification time. AI cannot approve or publish its own output.
 - No automatic catch-up after a missed local date, and no automatic photo
   selection. Explicit scheduling avoids accidentally selecting a sensitive photo.
@@ -88,7 +89,10 @@ persistent storage, not the OS disk or an Azure temporary disk.
 Set `OUR_DAYS_DATA_DIR` (Compose interpolation) to an existing private directory
 owned by UID/GID `10001`; Compose deliberately refuses to create an absent host
 directory. In containers, `MEDIA_ROOT` is `/media`. `MEDIA_QUOTA_MB` counts uploads,
-originals and derivatives; the default is 200 MB.
+originals and derivatives; the default is 200 MB. The administrator AI settings
+are stored separately under `/data/our-days-config` (UID/GID 10001, mode 700),
+mounted at `/config`; `ai.json` has mode 600. Create that directory before
+starting Compose. It is included in the encrypted application backup, not Git.
 
 Use a new `our_days` database owned by a new, non-superuser `our_days` role.
 The shared database's bootstrap superuser is `umami`, not `postgres`.
@@ -315,7 +319,30 @@ does not redirect an already-created delivery to a different provider.
 
 ## AI privacy and costs
 
-AI is off by default. `AI_URL` is a server-configured HTTPS
+Administrators can open **Settings / AI service configuration** to save a
+DeepSeek or OpenAI API key, model ID, USD-per-million input/output rates and a
+monthly budget, without editing environment files. Only the official fixed
+HTTPS endpoints are available; arbitrary client-supplied URLs are not accepted.
+Keys are write-only in the UI: a blank field preserves an existing key, deletion
+is explicit, and changing providers requires a matching new key. Saving does not
+call the provider or enable messaging. The explicit connection test only fetches
+the provider's model list, without any photo or caption.
+
+DeepSeek's official key portal is <https://platform.deepseek.com/api_keys>.
+Use the provider's current model and pricing documentation rather than stale
+model aliases or assumed exchange rates. A nonzero token rate is required before
+enabling generation. New installations default to disabled; dashboard settings
+take priority once saved. Environment-only configuration remains available if
+no dashboard settings file exists.
+
+GPS lookup is a separate opt-in operation: the administrator confirms sending
+coordinates rounded to three decimal places to Nominatim (OpenStreetMap).
+It returns a city candidate, caches the result and leaves saved place/approval
+unchanged until the administrator saves it. No original image is transmitted.
+Without GPS or an embedded textual place the system explicitly asks for manual
+input; it does not guess a city from a photograph.
+
+AI is off by default. For legacy environment configuration, `AI_URL` is a server-configured HTTPS
 OpenAI-compatible chat-completions endpoint, not a user-supplied URL.
 Only the explicitly consented, saved facts are transmitted; image bytes,
 EXIF and unsaved form text are not sent. Confirm that the configured provider
@@ -355,7 +382,7 @@ Never enable trust authentication for a production database.
 
 `scripts/backup.mjs --run`, executed on the host under the same `flock` as the
 publication worker, creates an authenticated AES-256-GCM archive containing the
-database dump and private media. It briefly stops and then restarts the web
+database dump, private media and private AI configuration. It briefly stops and then restarts the web
 container to prevent writes during the snapshot. It refuses to run with less
 than 1.6GiB free, validates decryption before accepting a backup, and retains
 the latest two snapshots under `/data/our-days-backups`.

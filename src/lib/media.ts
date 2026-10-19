@@ -6,6 +6,7 @@ import { ExifTool } from "exiftool-vendored";
 import * as yauzl from "yauzl";
 import { pool, query } from "./db";
 import { AppError, assertArchiveEntry, uuid } from "./domain";
+import { captureLabel, embeddedPlace } from "./photo-metadata";
 
 export const uploadLimit = 25 * 1024 * 1024;
 export function mediaRoot() {
@@ -79,10 +80,11 @@ export async function importPhoto(buffer: Buffer, tool: ExifTool): Promise<"adde
     const rawDate = tags.DateTimeOriginal?.toString() ?? null;
     const lat = typeof tags.GPSLatitude === "number" ? tags.GPSLatitude : null;
     const lon = typeof tags.GPSLongitude === "number" ? tags.GPSLongitude : null;
+    const place = embeddedPlace(Object.fromEntries(Object.entries(tags)));
     const result = await client.query(
-      `INSERT INTO photos(id,sha256,original_ext,original_bytes,captured_raw,latitude,longitude)
-       VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(sha256) DO NOTHING RETURNING id`,
-      [id, sha, ext, buffer.length, rawDate, lat, lon]);
+      `INSERT INTO photos(id,sha256,original_ext,original_bytes,captured_raw,latitude,longitude,date_label,place_label,metadata_place)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) ON CONFLICT(sha256) DO NOTHING RETURNING id`,
+      [id, sha, ext, buffer.length, rawDate, lat, lon, captureLabel(rawDate), place]);
     if (!result.rowCount) {
       for (const file of written) await unlink(file);
       return "duplicate";

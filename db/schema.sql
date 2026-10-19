@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS imports (
   created_at timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz
 );
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS metadata_place text NOT NULL DEFAULT '';
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS gps_place_guess text NOT NULL DEFAULT '';
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;
 CREATE TABLE IF NOT EXISTS settings (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   timezone text NOT NULL DEFAULT 'Asia/Shanghai',

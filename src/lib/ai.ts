@@ -3,8 +3,9 @@ import { Client } from "pg";
 import { z } from "zod";
 import { query, transaction } from "./db";
 import { AppError } from "./domain";
+import { runtimeAI } from "./ai-config";
 
-async function logCentral(model: string, input: number | null, output: number | null, cost: number, duration: number) {
+async function logCentral(provider: string, model: string, input: number | null, output: number | null, cost: number, duration: number) {
   if (!process.env.COST_PG_USER) {
     console.warn("[our-days] cost_sink_unconfigured; retained in ai_events");
     return;
@@ -20,18 +21,16 @@ async function logCentral(model: string, input: number | null, output: number | 
     await client.query(
       `INSERT INTO cost_event(service,provider,model,input_tokens,output_tokens,cost_usd,duration_ms,metadata)
        VALUES('our-days',$1,$2,$3,$4,$5,$6,'{"task":"caption"}'::jsonb)`,
-      [process.env.AI_PROVIDER ?? "foundry", model, input, output, cost, duration]);
+      [provider, model, input, output, cost, duration]);
   } catch {
     console.warn("[our-days] cost_sink_failed; retained in ai_events");
   } finally { await client.end(); }
 }
 
 export async function suggestCaption(id: string, style: string) {
-  if (process.env.AI_ENABLED !== "true") throw new AppError(409, "ai_disabled", "AI 未启用，可直接手写文案");
-  const url = process.env.AI_URL, key = process.env.AI_API_KEY, model = process.env.AI_MODEL;
-  const inputRate = Number(process.env.AI_INPUT_USD_PER_MILLION || NaN);
-  const outputRate = Number(process.env.AI_OUTPUT_USD_PER_MILLION || NaN);
-  const limit = Number(process.env.AI_MONTHLY_USD_LIMIT ?? 5);
+  const config = await runtimeAI();
+  if (!config.enabled) throw new AppError(409, "ai_disabled", "AI 未启用，可在设置中配置或直接手写文案");
+  const { url, apiKey: key, model, inputRate, outputRate, monthlyLimit: limit, provider } = config;
   if (!url || new URL(url).protocol !== "https:" || !key || !model ||
       !Number.isFinite(inputRate) || !Number.isFinite(outputRate) || inputRate < 0 || outputRate < 0 ||
       !Number.isFinite(limit) || limit <= 0) throw new AppError(503, "ai_config", "请配置 AI 接口、单价与预算");
@@ -46,14 +45,14 @@ export async function suggestCaption(id: string, style: string) {
     if (recent.rowCount) throw new AppError(429, "ai_rate", "请等待 30 秒再生成");
     if (Number(sum.rows[0].total) + reserve > limit) throw new AppError(429, "ai_budget", "本月 AI 预算不足");
     await client.query("INSERT INTO ai_events(id,provider,model,cost_usd,status) VALUES($1,$2,$3,$4,'reserved')",
-      [event, process.env.AI_PROVIDER ?? "foundry", model, reserve]);
+      [event, provider, model, reserve]);
   });
   let input: number | null = null, output: number | null = null, cost = reserve;
   const started = Date.now();
   try {
     const response = await fetch(url, {
-      method: "POST", signal: AbortSignal.timeout(30000),
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "api-key": key },
+      method: "POST", signal: AbortSignal.timeout(30000), redirect: "error",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, ...(provider === "foundry" ? { "api-key": key } : {}) },
       body: JSON.stringify({
         model, max_tokens: 800,
         messages: [
@@ -78,5 +77,5 @@ export async function suggestCaption(id: string, style: string) {
     await query("UPDATE ai_events SET status='unknown' WHERE id=$1", [event]);
     if (error instanceof AppError) throw error;
     throw new AppError(502, "ai_unknown", "AI 超时或返回无效；预算预留保留，未自动重试");
-  } finally { await logCentral(model, input, output, cost, Date.now() - started); }
+  } finally { await logCentral(provider, model, input, output, cost, Date.now() - started); }
 }

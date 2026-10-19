@@ -11,9 +11,15 @@ services:
       PG_USER: our_days
       PG_DB: our_days
       MEDIA_ROOT: /media
+      PRIVATE_CONFIG_DIR: /config
     ports:
       - "127.0.0.1:3016:3000"
     volumes:
+      - type: bind
+        source: /data/our-days-config
+        target: /config
+        bind:
+          create_host_path: false
       - type: bind
         source: /data/our-days-callback.env
         target: /run/secrets/our-days-wecom.env
@@ -42,7 +48,14 @@ services:
       PG_USER: our_days
       PG_DB: our_days
       MEDIA_ROOT: /media
+      PRIVATE_CONFIG_DIR: /config
     volumes:
+      - type: bind
+        source: /data/our-days-config
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ${OUR_DAYS_DATA_DIR:?Set OUR_DAYS_DATA_DIR to a verified persistent directory}
         target: /media

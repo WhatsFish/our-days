@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, readdir, unlink, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { NextRequest } from "next/server";
 import { pool } from "../src/lib/db";
-import { POST } from "../src/app/api/[...path]/route";
+import { GET, POST } from "../src/app/api/[...path]/route";
 
 if (process.env.PG_HOST !== "127.0.0.1" || process.env.PG_PORT !== "54326" || process.env.PG_DB !== "our_days_test") {
   throw new Error("Receipt tests require the isolated loopback test database");
 }
 process.env.WECHAT_VERIFY_TOKEN = "synthetic-receipt-token";
 process.env.WECHAT_OPEN_ID = "synthetic-recipient";
+const temp = await mkdtemp(path.join(tmpdir(), "our-days-api-config-"));
+process.env.PRIVATE_CONFIG_DIR = temp;
+process.env.MEDIA_ROOT = temp;
+process.env.PUBLIC_URL = "https://example.com/our-days";
+process.env.AI_ENABLED = "false";
 const timestamp = String(Math.floor(Date.now() / 1000)), nonce = "synthetic";
 const signature = createHash("sha1").update([process.env.WECHAT_VERIFY_TOKEN, timestamp, nonce].sort().join("")).digest("hex");
 const url = `https://example.com/our-days/api/wechat/callback?timestamp=${timestamp}&nonce=${nonce}&signature=${signature}`;
@@ -37,5 +44,73 @@ try {
     <Event>TEMPLATESENDJOBFINISH</Event><MsgID>18446744073709551614</MsgID><Status>success</Status></xml>`;
   assert.equal((await receive(template)).status, 200);
   assert.equal((await pool.query("SELECT status FROM wechat_receipts")).rows[0].status, "delivered");
+  const token = "a".repeat(64), reader = "b".repeat(64);
+  await pool.query("INSERT INTO sessions VALUES($1,'admin',now()+interval '1 hour'),($2,'reader',now()+interval '1 hour') ON CONFLICT DO NOTHING",
+    [createHash("sha256").update(token).digest("hex"), createHash("sha256").update(reader).digest("hex")]);
+  async function adminPost(endpoint: string, body: unknown, cookie = token) {
+    return POST(new NextRequest(`https://example.com/our-days/api/${endpoint}`, {
+      method: "POST", headers: { Origin: "https://example.com", Cookie: `our_days_session=${cookie}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }), { params: Promise.resolve({ path: endpoint.split("/") }) });
+  }
+  assert.equal((await adminPost("photo/place", { id: randomUUID(), consent: false })).status, 400);
+  const settings = { enabled: true, provider: "deepseek", model: "deepseek-flash", apiKey: "synthetic-secret", inputRate: 1, outputRate: 2, monthlyLimit: 5 };
+  assert.equal((await adminPost("ai/config", settings, reader)).status, 403);
+  const saved = await adminPost("ai/config", settings);
+  assert.equal(saved.status, 200);
+  const safe = await saved.text();
+  assert.equal(safe.includes("synthetic-secret"), false);
+  assert.equal(JSON.parse(safe).keyConfigured, true);
+  assert.equal((await adminPost("ai/config", { ...settings, apiKey: "", enabled: false })).status, 200);
+  assert.equal(JSON.parse(await readFile(path.join(temp, "ai.json"), "utf8")).apiKey, settings.apiKey);
+  assert.equal((await adminPost("ai/config", { ...settings, provider: "openai", apiKey: "" })).status, 400);
+  const originalFetch = globalThis.fetch;
+  const photoId = randomUUID();
+  await pool.query("INSERT INTO photos(id,sha256,original_ext,original_bytes,facts) VALUES($1,$2,'jpg',1,'A confirmed synthetic memory')", [photoId, randomUUID()]);
+  assert.equal((await adminPost("ai/config", settings)).status, 200);
+  try {
+    globalThis.fetch = async (input, init) => {
+      const endpoint = String(input);
+      if (endpoint.startsWith("https://nominatim.openstreetmap.org/")) {
+        const url = new URL(endpoint);
+        assert.equal(url.searchParams.get("lat"), "35.123");
+        assert.equal(url.searchParams.get("lon"), "139.988");
+        return Response.json({ address: { country: "Japan", state: "Tokyo", city: "Sample City" } });
+      }
+      if (endpoint.endsWith("/models")) return Response.json({ data: [{ id: "deepseek-flash" }] });
+      assert.equal(endpoint, "https://api.deepseek.com/chat/completions");
+      const payload = JSON.parse(String(init?.body));
+      assert.equal(payload.messages[1].content.includes("A confirmed synthetic memory"), true);
+      assert.equal("image" in payload, false);
+      return Response.json({ choices: [{ message: { content: "Synthetic candidate" } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
+    };
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 200);
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true })).status, 200);
+    assert.equal((await pool.query("SELECT provider FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].provider, "deepseek");
+    assert.equal((await adminPost("photo/place", { id: photoId, consent: true })).status, 400);
+    await pool.query("UPDATE photos SET latitude=35.123456,longitude=139.987654 WHERE id=$1", [photoId]);
+    const place = await adminPost("photo/place", { id: photoId, consent: true });
+    assert.equal(place.status, 200);
+    assert.equal((await place.json()).place, "Japan · Tokyo · Sample City");
+    const row = (await pool.query("SELECT place_label,approved,gps_place_guess FROM photos WHERE id=$1", [photoId])).rows[0];
+    assert.equal(row.place_label, "");
+    assert.equal(row.approved, false);
+    assert.equal(row.gps_place_guess, "Japan · Tokyo · Sample City");
+    globalThis.fetch = async () => { throw new Error("Cache must avoid any new external request"); };
+    assert.equal((await adminPost("photo/place", { id: photoId, consent: true })).status, 200);
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal((await adminPost("ai/config", { ...settings, enabled: false, apiKey: "", clearKey: true })).status, 200);
+  const dashboard = await GET(new NextRequest("https://example.com/our-days/api/admin", { headers: { Cookie: `our_days_session=${token}` } }),
+    { params: Promise.resolve({ path: ["admin"] }) });
+  assert.equal(dashboard.status, 200);
+  const publicDashboard = await dashboard.text();
+  assert.equal(publicDashboard.includes("synthetic-secret"), false);
+  assert.equal(JSON.parse(publicDashboard).ai.keyConfigured, false);
+  await pool.query("DELETE FROM photos WHERE id=$1", [photoId]);
   console.log("Receipt integration passed: signature, mass counters, zero-recipient success, deduplication, validation, template regression.");
-} finally { await pool.end(); }
+  console.log("AI settings integration passed: admin-only save, no key echoes, blank preservation, supplier-change guard, mock generation, cost recording, connection test and key deletion.");
+} finally {
+  await pool.end();
+  for (const file of await readdir(temp)) await unlink(path.join(temp, file));
+  await rmdir(temp);
+}

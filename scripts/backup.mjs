@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const media = "/data/our-days";
 const backups = "/data/our-days-backups";
+const privateConfig = "/data/our-days-config";
 const keyFile = path.join(homedir(), ".config/our-days-backup.key");
 const magic = Buffer.from("OURDAYS1");
 function command(executable, args, options = {}) {
@@ -68,7 +69,8 @@ async function backup() {
     await writeFile(path.join(temp, "database.sql"), dump, { mode: 0o600, flag: "wx" });
     const iv = randomBytes(12), cipher = createCipheriv("aes-256-gcm", await key(true), iv);
     await writeFile(pending, Buffer.concat([magic, iv]), { mode: 0o600, flag: "wx" });
-    const tar = spawn("sudo", ["-n", "tar", "-czf", "-", "-C", media, ".", "-C", temp, "database.sql"], { stdio: ["ignore", "pipe", "pipe"] });
+    const tar = spawn("sudo", ["-n", "tar", "-czf", "-", "-C", media, ".", "-C", temp, "database.sql",
+      "-C", path.dirname(privateConfig), path.basename(privateConfig)], { stdio: ["ignore", "pipe", "pipe"] });
     const exited = new Promise((resolve, reject) => {
       tar.once("error", reject);
       tar.once("exit", code => code === 0 ? resolve() : reject(new Error("Photo archive failed")));

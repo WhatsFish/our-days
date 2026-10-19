@@ -45,6 +45,7 @@ export function localDay(now: Date, timezone: string): string {
 }
 
 export type Photo = z.infer<typeof photoEdit> & {
+  metadata_place?: string;
   captured_raw: string | null;
   latitude: number | null;
   longitude: number | null;
