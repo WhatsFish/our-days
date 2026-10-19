@@ -328,6 +328,18 @@ reviewed caption or reporting an error if it cannot fit legibly. Draft facts and
 GPS coordinates are not printed on cards. Provider acceptance is recorded as
 accepted, never fabricated as delivered or read.
 
+For a specifically approved real-material E2E check,
+`scripts/e2e-wecom.ts --check` renders the first two approved unused photos using
+the same snapshot/card functions without sending. `--send-two` additionally
+requires a new private `E2E_STATE_FILE`, marks both images E2E 1/2 and 2/2,
+and submits each exactly once using the shared WeCom sender. It holds the worker
+lock and rechecks photo approval/content before submission. Failures or unknown
+submissions stop the batch without retry; an existing state file prevents a
+second run. It does not call AI, consume stock, create daily history records or
+change schedules. The private state records IDs, dimensions, hashes, timestamps
+and provider acceptance, not captions, coordinates or credentials. Actual
+ordinary-WeChat receipt must still be confirmed by the operator.
+
 ## PushPlus alternative
 
 Set `PUSH_CHANNEL=pushplus`. Configure `PUSHPLUS_TOKEN`, the single recipient's
