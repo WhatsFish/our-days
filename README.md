@@ -395,6 +395,12 @@ Obtain a **model standard API** key at
 products and not used for this application. See
 <https://docs.bigmodel.cn/cn/api/introduction>. The model ID is editable to match
 the account. No photos or real story facts are sent by a connection test.
+GLM model IDs are normalized to lowercase. `glm-5.3-flash` and
+`glm-5.3-flashx` require reasoning enabled; their token allowance includes
+reasoning rather than forcing the short non-reasoning probe budget. The API
+configuration panel displays progress and failures next to the validation
+button. Explicit provider HTTP rejections are recorded as failed with a safe
+HTTP-derived error code; raw provider bodies and credentials are not echoed.
 
 DeepSeek's official key portal is <https://platform.deepseek.com/api_keys>.
 Use the provider's current model and pricing documentation rather than stale

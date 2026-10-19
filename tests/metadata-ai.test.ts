@@ -55,6 +55,8 @@ test("saved AI config is loaded per call and connection test sends no photo fact
     await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, monthlyLimit: null, inputRate: null, outputRate: null }));
     assert.equal((await runtimeAI()).monthlyLimit, null);
     assert.equal((await runtimeAI()).inputRate, null);
+    await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, provider: "zhipu", model: "GLM-5.3-Flash", monthlyLimit: null }));
+    assert.equal((await runtimeAI()).model, "glm-5.3-flash");
   } finally {
     if (previous === undefined) delete process.env.PRIVATE_CONFIG_DIR; else process.env.PRIVATE_CONFIG_DIR = previous;
     await unlink(path.join(dir, "ai.json")); await rmdir(dir);

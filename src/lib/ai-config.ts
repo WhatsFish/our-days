@@ -56,7 +56,9 @@ export async function saveAISettings(input: unknown): Promise<PublicAI> {
       throw new AppError(400, "ai_key", "更换供应商时请填写对应的新密钥或清除旧密钥");
     }
     const { clearKey, apiKey, ...rest } = data;
-    const next = { ...rest, apiKey: clearKey ? "" : apiKey || previous?.apiKey || "" };
+    const next = { ...rest,
+      model: rest.provider === "zhipu" && /^glm-/i.test(rest.model) ? rest.model.toLowerCase() : rest.model,
+      apiKey: clearKey ? "" : apiKey || previous?.apiKey || "" };
     if (next.enabled && !next.apiKey) {
       throw new AppError(400, "ai_config", "启用 AI 前请填写 API Key");
     }
@@ -83,6 +85,7 @@ export async function runtimeAI(): Promise<AIConfiguration> {
   const config = await stored();
   if (config) return {
     ...config,
+    model: config.provider === "zhipu" && /^glm-/i.test(config.model) ? config.model.toLowerCase() : config.model,
     url: config.provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
       config.provider === "deepseek" ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions",
   };

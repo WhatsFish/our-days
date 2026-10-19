@@ -366,6 +366,9 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
   const [model, setModel] = useState(config.model);
   const [apiKey, setApiKey] = useState("");
   const [connection, setConnection] = useState("");
+  const [connectionError, setConnectionError] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ error: boolean; message: string } | null>(null);
   const [limitEnabled, setLimitEnabled] = useState(config.monthlyLimit !== null);
   useEffect(() => { setProvider(config.provider); setModel(config.model); }, [config.provider, config.model]);
   useEffect(() => { setLimitEnabled(config.monthlyLimit !== null); }, [config.monthlyLimit]);
@@ -380,22 +383,27 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
       <a href="https://docs.bigmodel.cn/cn/api/introduction" target="_blank" rel="noreferrer">官方接口说明</a></p>}
     <form key={JSON.stringify(config)} className="form-grid" onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
+      setSaveStatus(null);
       void perform(async () => {
-        await api("ai/config", {
+        try { await api("ai/config", {
           provider, apiKey, enabled: form.has("enabled"), clearKey: form.has("clearKey"),
           model: value(form, "model"),
           inputRate: value(form, "inputRate").trim() ? Number(value(form, "inputRate")) : null,
           outputRate: value(form, "outputRate").trim() ? Number(value(form, "outputRate")) : null,
           monthlyLimit: limitEnabled ? Number(value(form, "monthlyLimit")) : null,
-        });
-        setApiKey(""); setConnection("");
+        }); setApiKey(""); setConnection(""); setConnectionError(false);
+        setSaveStatus({ error: false, message: "AI 配置已保存，密钥已保存在服务器，可点击下方验证。" });
+        } catch (error) {
+          setSaveStatus({ error: true, message: error instanceof Error ? error.message : "保存失败" });
+          throw error;
+        }
       }, "AI 配置已保存；密钥不会回显，可先测试连接");
     }}>
       <label>供应商<select name="provider" value={provider} onChange={event => {
         const next = event.target.value;
         if (next !== "zhipu" && next !== "openai" && next !== "deepseek") return;
         setProvider(next); setModel(next === "zhipu" ? "glm-5.3" : next === "openai" ? "gpt-4o-mini" : "deepseek-flash");
-        setApiKey(""); setConnection("");
+        setApiKey(""); setConnection(""); setConnectionError(false);
       }}><option value="zhipu">智谱 GLM（标准 API）</option><option value="deepseek">DeepSeek（官方 API）</option><option value="openai">OpenAI（官方 API）</option></select></label>
       <label>模型 ID<input name="model" value={model} onChange={event => setModel(event.target.value)} required maxLength={120} placeholder="按账号可用模型填写" /></label>
       <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
@@ -409,12 +417,22 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
       <label className="check"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用文字文案生成（每次生成仍需单独同意）</label>
       <label className="check wide"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label>
       <button disabled={busy}>保存 AI 配置</button>
+      {saveStatus && <p className={`wide alert${saveStatus.error ? " error" : ""}`} role={saveStatus.error ? "alert" : "status"}>{saveStatus.message}</p>}
     </form>
-    <button className="quiet" disabled={busy || !config.keyConfigured} onClick={() => void perform(async () => {
-      const result = await api<{ message: string }>("ai/test", { confirm: true }); setConnection(result.message);
-    }, "AI 连接检查完成")}>{config.provider === "zhipu" ? "验证智谱配置（少量计费测试）" : "测试已保存配置（模型列表）"}</button>
+    <button className="quiet" disabled={busy || !config.keyConfigured} aria-busy={testing} onClick={() => {
+      setTesting(true); setConnectionError(false); setConnection("正在验证已保存的密钥和模型，请稍候…");
+      void perform(async () => {
+        try {
+          const result = await api<{ message: string }>("ai/test", { confirm: true });
+          setConnection(result.message);
+        } catch (error) {
+          setConnectionError(true); setConnection(error instanceof Error ? error.message : "验证失败，请重试");
+          throw error;
+        } finally { setTesting(false); }
+      }, "AI 连接检查完成");
+    }}>{testing ? "验证中…" : config.provider === "zhipu" ? "验证智谱配置（少量计费测试）" : "测试已保存配置（模型列表）"}</button>
     {config.provider === "zhipu" && <p className="muted">智谱验证会用固定文本请求一次模型，消耗少量 tokens；不发送照片或素材说明。不启用限额时无需填写单价。</p>}
-    {connection && <p role="status">{connection}</p>}
+    {connection && <p className={`alert${connectionError ? " error" : ""}`} role={connectionError ? "alert" : "status"} aria-live="polite">{connection}</p>}
     <p className="muted">生成草稿只发送你主动同意的事件说明，不上传照片或 GPS；生成结果仍由你审核。预算按 token 单价估算，并非供应商账单的硬性封顶。</p>
   </section>;
 }

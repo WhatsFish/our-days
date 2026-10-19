@@ -155,6 +155,26 @@ try {
     await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
     assert.equal((await adminPost("ai/config", { ...noCap, monthlyLimit: 5, inputRate: 1, outputRate: 2 })).status, 200);
     assert.equal((await adminPost("ai/test", { confirm: true })).status, 409, "Unknown historic costs must not be counted as zero under a new cap");
+    const flashConfig = await adminPost("ai/config", { ...noCap, model: "GLM-5.3-Flash" });
+    assert.equal(flashConfig.status, 200);
+    assert.equal((await flashConfig.json()).model, "glm-5.3-flash");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    let flashCalls = 0;
+    globalThis.fetch = async (_input, init) => {
+      flashCalls++;
+      const payload = JSON.parse(String(init?.body));
+      assert.equal(payload.model, "glm-5.3-flash");
+      assert.equal(payload.thinking.type, "enabled");
+      assert.equal(payload.max_tokens, 2048);
+      return new Response("", { status: 401 });
+    };
+    const rejected = await adminPost("ai/test", { confirm: true });
+    assert.equal(rejected.status, 502);
+    assert.match((await rejected.json()).error, /HTTP 401/);
+    assert.equal(flashCalls, 1, "Authentication failure must not be automatically retried");
+    const failedEvent = (await pool.query("SELECT status,error_code FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
+    assert.equal(failedEvent.status, "failed");
+    assert.equal(failedEvent.error_code, "ai_provider_http_401");
   } finally { globalThis.fetch = originalFetch; }
   assert.equal((await adminPost("ai/config", { ...settings, enabled: false, apiKey: "", clearKey: true })).status, 200);
   const dashboard = await GET(new NextRequest("https://example.com/our-days/api/admin", { headers: { Cookie: `our_days_session=${token}` } }),
@@ -163,7 +183,7 @@ try {
   const publicDashboard = await dashboard.text();
   assert.equal(publicDashboard.includes("synthetic-secret"), false);
   assert.equal(JSON.parse(publicDashboard).ai.keyConfigured, false);
-  assert.equal(JSON.parse(publicDashboard).aiUnknownCost, 1);
+  assert.equal(JSON.parse(publicDashboard).aiUnknownCost, 2);
   const status = JSON.parse(publicDashboard);
   assert.equal(typeof status.stats.photos, "number");
   assert.equal(typeof status.stats.submitted, "number");
