@@ -29,15 +29,21 @@ test("portrait photos occupy the card width and retain their lower corners witho
   const upperBorder = pixel(540, 28);
   assert.ok(upperBorder.every(channel => channel > 245), "Top white border must have no branding/date text");
 });
-test("card height follows aspect ratio and almanac is absent even in legacy snapshots", async () => {
+test("card height follows aspect ratio and weather/almanac never affect the instant-photo layout", async () => {
   const portrait = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: "#809070" } }).jpeg().toBuffer();
   const landscape = await sharp({ create: { width: 1600, height: 1067, channels: 3, background: "#809070" } }).jpeg().toBuffer();
   const tall = await renderPhotoCard(snapshot, "2026-10-19", portrait);
   const wide = await renderPhotoCard(snapshot, "2026-10-19", landscape);
   const tallMeta = await sharp(tall).metadata(), wideMeta = await sharp(wide).metadata();
   assert.ok(tallMeta.height! - wideMeta.height! > 500, "Portrait and landscape must not share one fixed canvas height");
-  const legacy = await renderPhotoCard({ ...snapshot, almanac: "不应显示的黄历宜忌" }, "2026-10-19", landscape);
-  assert.deepEqual(legacy, wide, "Hidden almanac must not affect content or spacing");
+  const legacy = await renderPhotoCard({ ...snapshot, weather: "湖州 20—27°C，降水概率 63% · Open-Meteo", almanac: "不应显示的黄历宜忌" }, "2026-10-19", landscape);
+  assert.deepEqual(legacy, wide, "Weather and almanac in saved snapshots must not affect content, spacing or canvas size");
+  const weatherFailure = await renderPhotoCard({ ...snapshot, weather: "天气暂未更新" }, "2026-10-19", portrait);
+  assert.deepEqual(weatherFailure, tall, "Weather errors must not appear on portrait cards either");
+  const note = { ...snapshot, star_note: "另行编辑的小笺" };
+  const withNote = await renderPhotoCard(note, "2026-10-19", landscape);
+  assert.notDeepEqual(withNote, wide, "Removing weather must preserve separately configured editorial notes");
+  assert.deepEqual(await renderPhotoCard({ ...note, weather: "湖州天气" }, "2026-10-19", landscape), withNote);
   const otherSendDate = await renderPhotoCard(snapshot, "这个发送标题不应出现在相纸上", landscape);
   assert.deepEqual(otherSendDate, wide, "No generated title or delivery date is added above the photograph");
 });

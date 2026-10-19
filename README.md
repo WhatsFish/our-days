@@ -360,8 +360,12 @@ and provider acceptance, not captions, coordinates or credentials. Actual
 ordinary-WeChat receipt must still be confirmed by the operator.
 For a single style revision, `--send-one` uses the same protected runner for only
 the first approved unused photo, rather than sending another two-image batch.
-Add `--require-weather` to cancel before any submission if the live forecast
-cannot be included. Weather settings distinguish the display-only city label
+Weather is no longer rendered on instant-photo image cards, including weather
+or weather-error text in existing snapshots. Photo/date/place/caption layout and
+separately configured editorial notes are unchanged. The former
+`--require-weather` preview flag now fails explicitly without sending.
+Weather configuration and reader-archive data remain available.
+Weather settings distinguish the display-only city label
 from the required latitude/longitude pair, show Huzhou examples, and warn when
 only a city name is filled. Clearing both coordinates disables weather.
 

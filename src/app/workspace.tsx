@@ -255,6 +255,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       <p className="muted wide">当前按 {s.timezone === "Asia/Shanghai" ? "北京时间" : s.timezone} 发送。时区是“几点”的计算规则，不是第二份排期。</p>
       <section className="wide" aria-labelledby="weather-settings-title">
         <h3 id="weather-settings-title">天气（可选）</h3>
+        <p className="muted">天气配置暂时保留，但不会显示在微信拍立得图片卡片上。</p>
         <p className="muted" id="weather-help">经纬度决定查询哪里的天气，城市名只用于显示，不会自动定位。要获取天气，请同时填写纬度和经度；更换城市时也要修改坐标。</p>
         <label>天气城市名（显示用）<input name="weather_city" value={weatherCity} onChange={event => setWeatherCity(event.target.value)}
           maxLength={80} placeholder="例如：湖州（浙江，中国）" aria-describedby="weather-help" /></label>

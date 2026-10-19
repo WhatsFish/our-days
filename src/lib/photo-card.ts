@@ -37,8 +37,7 @@ export async function renderPhotoCard(snapshot: Snapshot, _day: string, input?: 
   const photoBottom = photoY + dimensions.height;
   const caption = wrapCardText(snapshot.caption, 20);
   const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 29);
-  const extras = [snapshot.weather === "未配置天气城市" ? "" : snapshot.weather, snapshot.star_note]
-    .filter(Boolean).flatMap(text => wrapCardText(text, 30));
+  const extras = snapshot.star_note ? wrapCardText(snapshot.star_note, 30) : [];
   let y = photoBottom + 64;
   const text: string[] = [];
   function add(lines: string[], size: number, lineHeight: number, color: string) {
