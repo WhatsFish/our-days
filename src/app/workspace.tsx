@@ -5,7 +5,7 @@ import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
 import type { PublicAI } from "../lib/ai-config";
 import { UploadPanel } from "./upload-panel";
 import { PhotoLibrary } from "./photo-library";
-import { aiPricing, GLM_FLASH_MODEL } from "../lib/ai-policy";
+import { aiPricing, GLM_FLASH_MODEL, supportsPhotoCaption } from "../lib/ai-policy";
 import type { OperatorCounts, Resources } from "../lib/operator-status";
 
 type Role = "admin" | "reader" | null;
@@ -136,7 +136,8 @@ export function Workspace() {
           <details className="card upload-disclosure"><summary>上传照片 / ZIP</summary>
             <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           </details>
-          <PhotoLibrary aiEnabled={dashboard.aiEnabled} revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} />
+          <PhotoLibrary aiEnabled={dashboard.aiEnabled} aiWithPhoto={supportsPhotoCaption(dashboard.ai.provider, dashboard.ai.model)}
+            revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} />
         </>}
         {tab === "history" && <SendHistory dashboard={dashboard} busy={busy} perform={perform} />}
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
@@ -333,10 +334,10 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
       <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
         <input name="apiKey" type="password" autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={512} placeholder={config.keyConfigured ? "填写新密钥以替换；不会显示旧值" : "粘贴你的 API Key"} /></label>
       {preset ? <div className="wide preset-panel"><strong>GLM-5.3-Flash · 已内置</strong><p>输入 ¥{pricing.inputRate} / 百万 tokens · 输出 ¥{pricing.outputRate} / 百万 tokens · 每月上限 ¥100</p>
-        <p className="muted">缓存命中报价 ¥0.23 / 百万 tokens；限额按普通输入价保守计费，不因缓存折扣低估预算。当前文案功能只发送文字。</p></div> :
+        <p className="muted">缓存命中报价 ¥0.23 / 百万 tokens；限额按普通输入价保守计费。文案生成会结合照片压缩副本、事件说明及填写的时间地点；不发送原图 EXIF/GPS。</p></div> :
         <div className="wide form-grid" key={provider + model}><label>输入单价（美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.currency === "USD" && provider === config.provider ? config.inputRate ?? "" : ""} required /></label>
           <label>输出单价（美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.currency === "USD" && provider === config.provider ? config.outputRate ?? "" : ""} required /></label></div>}
-      <label className="check wide"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用 AI 文案生成</label>
+      <label className="check wide"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用 AI 文案生成（GLM-5.3-Flash 支持看图）</label>
       <details className="wide"><summary>密钥管理</summary><label className="check"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label></details>
       <div className="actions wide"><button disabled={busy}>{busy && !testing ? "保存中…" : "保存 AI 配置"}</button>
         <button type="button" className="quiet" disabled={busy || !config.keyConfigured || provider !== config.provider || model !== config.model || !!apiKey} aria-busy={testing} onClick={() => {
@@ -354,6 +355,6 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
     </form>
     {config.provider === "zhipu" && <p className="muted">验证会请求一次固定测试文本，计入月度预算；不发送照片或事件说明。修改后请先保存再验证。</p>}
     {connection && <p className={`alert${connectionError ? " error" : ""}`} role={connectionError ? "alert" : "status"} aria-live="polite">{connection}</p>}
-    <p className="muted">生成结果自动填入草稿，由你保存确认后才能进入队列。人民币预算按 tokens 保守估算，并发请求先预留费用；超时保留预留，不自动重试。旧美元记录及美元定价模型按固定 1 USD = ¥8 记账，中央美元日志为折算估算值。此限额只约束本系统，不是供应商账号总账单封顶。</p>
+    <p className="muted">生成结果自动填入草稿，由你保存确认后才能进入队列。看图调用先按模型完整上下文上限保守预留，成功后按实际 tokens 结算；超时保留预留，不自动重试。旧美元记录及美元定价模型按固定 1 USD = ¥8 记账，中央美元日志为折算估算值。每月 ¥100 限额只约束本系统，不是供应商账号总账单封顶。</p>
   </section>;
 }

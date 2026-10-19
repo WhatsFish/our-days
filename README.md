@@ -420,7 +420,8 @@ products and not used for this application. See
 <https://docs.bigmodel.cn/cn/api/introduction>. The model ID is editable to match
 the account. No photos or real story facts are sent by a connection test.
 GLM model IDs are normalized to lowercase. `glm-5.3-flash` and
-`glm-5.3-flashx` require reasoning enabled; their token allowance includes
+`glm-5.3-flashx` require reasoning enabled; captions use `reasoning_effort: low`
+for this short task. Their token allowance includes
 reasoning rather than forcing the short non-reasoning probe budget. The API
 configuration panel displays progress and failures next to the validation
 button. Explicit provider HTTP rejections are recorded as failed with a safe
@@ -447,14 +448,32 @@ input; it does not guess a city from a photograph.
 
 AI is off by default. For legacy environment configuration, `AI_URL` is a server-configured HTTPS
 OpenAI-compatible chat-completions endpoint, not a user-supplied URL.
-Clicking Generate authorizes sending the current event-description draft;
-no separate consent checkbox or preliminary save is required. Image bytes and
-EXIF are not sent. Confirm that the configured provider
-is approved for any personal text before enabling it.
+Clicking Generate authorizes sending the current event-description draft and
+the filled date/place labels; no separate consent checkbox or preliminary save
+is required. GLM-5.3-Flash/FlashX also receive one private image copy as an
+`image_url` Base64 Data URL: generated in memory from the display derivative,
+aspect-preserving JPEG at most 1280px per side and 1MiB, with metadata stripped.
+No public photo URL, original file, EXIF or raw GPS is sent. Background text may
+be empty in this mode. Other models retain clearly labelled text-only behavior.
+Confirm that the configured provider is approved for these personal photos and
+texts before enabling it. Official image-input format:
+<https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash>.
+
+The caption prompt combines visible details and supplied background, prioritizes
+explicit facts over guesses, forbids invented first meetings/anniversaries,
+identity recognition and sensitive personal inferences, and requests one natural
+40–90-character caption (100 maximum). Photo/description contents are treated as
+data, not instructions. Image preparation errors stop the request explicitly,
+not silently fall back to text. Vision requests time out at 60 seconds, without
+automatic retries; connection probes remain fixed text only.
 
 The cap cannot be disabled in the UI or bypassed through legacy API fields.
 Budget is reserved transactionally before submission, using an input byte-count
-upper estimate and the output token ceiling. Missing usage and ambiguous failures
+upper estimate and the output token ceiling. For vision input, no undocumented
+image-token formula is assumed: the full 1M (1,048,576-token) model context ceiling
+is temporarily reserved, plus the output allowance, then replaced by actual
+reported total prompt/completion usage on success. At the Flash preset that is
+about CNY 0.85 reserved, not an extra fixed charge. Missing usage and ambiguous failures
 retain the reservation; explicit HTTP 4xx rejections release it, while HTTP 5xx
 failures keep it. Prior unknown costs
 block generation until accounted for, never count as zero. This controls only this

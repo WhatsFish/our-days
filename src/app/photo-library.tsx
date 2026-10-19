@@ -18,8 +18,8 @@ async function request<T>(route: string, body?: unknown, signal?: AbortSignal): 
 const statusLabel = (photo: Photo) => photo.used ? "已使用 / 已安排" : photo.approved ? "待发送" : "待确认";
 type Page = { photos: Photo[]; total: number; page: number };
 
-export function PhotoLibrary({ aiEnabled, revision, refresh, selectedId, select }: {
-  aiEnabled: boolean; revision: object; refresh: () => Promise<void>;
+export function PhotoLibrary({ aiEnabled, aiWithPhoto, revision, refresh, selectedId, select }: {
+  aiEnabled: boolean; aiWithPhoto: boolean; revision: object; refresh: () => Promise<void>;
   selectedId: string | null; select: (id: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -78,15 +78,15 @@ export function PhotoLibrary({ aiEnabled, revision, refresh, selectedId, select 
       <span>第 {data?.page ?? page} / {Math.max(1, Math.ceil((data?.total ?? 0) / 20))} 页</span>
       <button className="quiet" disabled={loading || page * 20 >= (data?.total ?? 0)} onClick={() => setPage(n => n + 1)}>下一页</button>
     </div>
-    {selectedId && selected && <PhotoDetail key={selected.id} photo={selected} aiEnabled={aiEnabled} refresh={changed}
+    {selectedId && selected && <PhotoDetail key={selected.id} photo={selected} aiEnabled={aiEnabled} aiWithPhoto={aiWithPhoto} refresh={changed}
       close={() => select(null)} previous={selectedIndex > 0 ? () => select(rows[selectedIndex - 1].id) : undefined}
       next={selectedIndex >= 0 && selectedIndex < rows.length - 1 ? () => select(rows[selectedIndex + 1].id) : undefined} />}
     {selectedId && !selected && (error ? <button className="quiet" onClick={() => select(null)}>取消打开照片</button> : <p role="status">正在打开照片…</p>)}
   </section>;
 }
 
-function PhotoDetail({ photo, aiEnabled, refresh, close, previous, next }: {
-  photo: Photo; aiEnabled: boolean; refresh: () => Promise<void>; close: () => void;
+function PhotoDetail({ photo, aiEnabled, aiWithPhoto, refresh, close, previous, next }: {
+  photo: Photo; aiEnabled: boolean; aiWithPhoto: boolean; refresh: () => Promise<void>; close: () => void;
   previous?: () => void; next?: () => void;
 }) {
   const initial = { date_label: photo.date_label || captureLabel(photo.captured_raw), place_label: photo.place_label || photo.metadata_place || "",
@@ -168,18 +168,22 @@ function PhotoDetail({ photo, aiEnabled, refresh, close, previous, next }: {
             });
           }}>根据 GPS 解析城市</button>}
           <label htmlFor="photo-facts">当时发生了什么</label><textarea id="photo-facts" value={form.facts} maxLength={3000} onChange={event => setForm({ ...form, facts: event.target.value })}
-            placeholder="写下真实经历，供 AI 生成文案使用；这段说明不会直接印在照片上。" />
+            placeholder="补充照片背后的真实经历，AI 会结合画面写文案；这段说明不会直接印在照片上。" />
           <div className="ai-toolbar"><div><label htmlFor="caption-style">文案风格</label><select id="caption-style" value={style} onChange={event => setStyle(event.target.value)}><option>温柔</option><option>朴实</option><option>俏皮</option></select></div>
-            <button type="button" className="quiet" disabled={!aiEnabled || !form.facts.trim()} aria-busy={working === "ai"} onClick={() => {
+            <button type="button" className="quiet" disabled={!aiEnabled || (!aiWithPhoto && !form.facts.trim())} aria-busy={working === "ai"} onClick={() => {
               if (form.caption.trim() && !window.confirm("AI 生成成功后会替换当前文案草稿（可撤销），是否继续？")) return;
               setElapsed(0);
               void run("ai", async () => {
-                const result = await request<{ draft: string }>("ai", { id: photo.id, style, facts: form.facts, consent: true });
+                const result = await request<{ draft: string }>("ai", { id: photo.id, style, facts: form.facts,
+                  date_label: form.date_label, place_label: form.place_label, consent: true });
                 setBeforeAI(form.caption); setForm({ ...form, caption: result.draft, approved: false });
                 setFeedback("AI 文案已填入下方。核对或修改后，保存草稿或确认加入队列。");
               });
             }}>{working === "ai" ? `生成中 · ${elapsed} 秒` : "AI 生成并填入文案"}</button></div>
-          <p className="muted">{aiEnabled ? "点击生成会将当前事件说明交给已配置的 AI 服务；不发送照片或 GPS，无需先保存。模型请求超时为 30 秒。" : "AI 尚未启用，请到「API 与系统配置」保存密钥并启用。手写文案不受影响。"}</p>
+          <p className="muted">{aiEnabled ? aiWithPhoto ?
+            "看图生成：发送去掉 EXIF/GPS 的压缩照片，以及当前事件说明、拍摄时间和地点。背景可留空，无需先保存；模型请求超时为 60 秒。" :
+            "当前模型使用纯文字：只发送事件说明和填写的时间地点，不发送照片。无需先保存；模型请求超时为 30 秒。" :
+            "AI 尚未启用，请到「API 与系统配置」保存密钥并启用。手写文案不受影响。"}</p>
           <label htmlFor="photo-caption">推送文案</label><textarea id="photo-caption" className="caption-input" value={form.caption} maxLength={3000}
             onChange={event => setForm({ ...form, caption: event.target.value, approved: false })} placeholder="实际印在照片下方的文字，也可以直接手写。" />
           {beforeAI !== null && <button type="button" className="quiet" onClick={() => { setForm({ ...form, caption: beforeAI, approved: false }); setBeforeAI(null); setFeedback("已恢复生成前的文案草稿。"); }}>撤销 AI 填入</button>}

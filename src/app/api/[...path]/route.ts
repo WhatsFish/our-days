@@ -302,8 +302,11 @@ export async function POST(request: NextRequest, context: Context) {
     }
     if (route === "ai") {
       const value = z.object({ id: uuid, consent: z.literal(true), style: z.enum(["朴实", "俏皮", "温柔"]),
-        facts: z.string().trim().min(1).max(3000).optional() }).parse(body);
-      return json({ draft: await suggestCaption(value.id, value.style, value.facts) });
+        facts: z.string().trim().max(3000).optional(),
+        date_label: z.string().trim().max(80).optional(), place_label: z.string().trim().max(120).optional() }).parse(body);
+      return json({ draft: await suggestCaption(value.id, value.style, value.facts, {
+        date_label: value.date_label, place_label: value.place_label,
+      }) });
     }
     throw new AppError(404, "not_found", "接口不存在");
   } catch (error) { return failure(error); }

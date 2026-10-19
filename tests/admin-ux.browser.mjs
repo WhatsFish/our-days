@@ -42,7 +42,7 @@ try {
     resources: { processRss: 1000, containerUsage: 1000, containerLimit: 536870912, hostMemoryTotal: 1000000000, hostMemoryFree: 500000000, diskFree: 2000000000, diskTotal: 30000000000 },
     queue: [], health: { healthy: true, reason: "Test worker healthy" },
   };
-  let generated = 0, saved = null, lastFacts = "";
+  let generated = 0, saved = null, lastFacts = "", lastContext = null;
   await page.route("**/our-days/api/**", async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.split("/api/")[1];
@@ -62,6 +62,7 @@ try {
     } else if (endpoint === "ai") {
       generated++;
       lastFacts = route.request().postDataJSON().facts;
+      lastContext = route.request().postDataJSON();
       await delay(650);
       if (generated === 2) { await route.fulfill({ status: 502, json: { error: "Synthetic provider failure" } }); return; }
       body = { draft: "AI generated caption" };
@@ -91,12 +92,17 @@ try {
   const editor = page.getByRole("dialog");
   await editor.waitFor();
   assert.equal(await editor.getByRole("checkbox").count(), 1, "No per-call consent checkbox");
+  await editor.getByText(/看图生成：发送去掉 EXIF\/GPS 的压缩照片/).waitFor();
+  await editor.getByLabel("当时发生了什么").fill("");
+  assert.equal(await editor.getByRole("button", { name: "AI 生成并填入文案" }).isEnabled(), true, "Photo-only generation needs no facts");
   await editor.getByLabel("当时发生了什么").fill("Unsaved current facts");
   page.once("dialog", dialog => dialog.accept());
   await editor.getByRole("button", { name: "AI 生成并填入文案" }).click();
   await editor.getByRole("status").filter({ hasText: "正在生成文案" }).waitFor();
   await editor.getByText("AI 文案已填入下方。核对或修改后，保存草稿或确认加入队列。").waitFor();
   assert.equal(lastFacts, "Unsaved current facts");
+  assert.equal(lastContext.date_label, "Synthetic 1");
+  assert.equal(lastContext.place_label, "Test city");
   assert.equal(await editor.getByLabel("推送文案", { exact: true }).inputValue(), "AI generated caption");
   assert.equal(saved, null, "Generation must not automatically persist or approve");
   await editor.getByRole("button", { name: "撤销 AI 填入" }).click();

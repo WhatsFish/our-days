@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, readdir, unlink, rmdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, unlink, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import sharp from "sharp";
 import { NextRequest } from "next/server";
 import { pool } from "../src/lib/db";
 import { GET, POST } from "../src/app/api/[...path]/route";
@@ -91,6 +92,8 @@ try {
   const originalFetch = globalThis.fetch;
   const photoId = randomUUID();
   await pool.query("INSERT INTO photos(id,sha256,original_ext,original_bytes,facts) VALUES($1,$2,'jpg',1,'A confirmed synthetic memory')", [photoId, randomUUID()]);
+  await writeFile(path.join(temp, `${photoId}.display.webp`),
+    await sharp({ create: { width: 300, height: 400, channels: 3, background: "#7196aa" } }).webp().toBuffer());
   assert.equal((await adminPost("ai/config", settings)).status, 200);
   try {
     globalThis.fetch = async (input, init) => {
@@ -109,6 +112,7 @@ try {
       return Response.json({ choices: [{ message: { content: "Synthetic candidate" } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
     };
     assert.equal((await adminPost("ai/test", { confirm: true })).status, 200);
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 400, "Text-only models still need background facts");
     assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true })).status, 200);
     assert.equal((await pool.query("SELECT provider FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].provider, "deepseek");
     assert.equal((await adminPost("photo/place", { id: photoId, consent: true })).status, 400);
@@ -160,20 +164,48 @@ try {
     await pool.query("UPDATE ai_events SET cost_cny=NULL,cost_usd=NULL WHERE id=$1", [eventId]);
     assert.equal((await adminPost("ai/test", { confirm: true })).status, 409, "Unknown historic charges must not become zero");
     await pool.query("UPDATE ai_events SET cost_cny=0,cost_usd=0 WHERE id=$1", [eventId]);
+    await pool.query("UPDATE ai_events SET cost_cny=99.5 WHERE id=$1", [eventId]);
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 429,
+      "Vision input must be reserved too, not just the short text prompt");
+    await pool.query("UPDATE ai_events SET cost_cny=0 WHERE id=$1", [eventId]);
     globalThis.fetch = async (_input, init) => {
       const payload = JSON.parse(String(init?.body));
-      assert.equal(payload.messages[1].content.includes("Unsaved synthetic facts"), true);
+      const content = payload.messages[1].content;
+      assert.equal(Array.isArray(content), true);
+      assert.equal(content.length, 2);
+      assert.equal(content[0].type, "image_url");
+      assert.match(content[0].image_url.url, /^data:image\/jpeg;base64,/);
+      const image = await sharp(Buffer.from(content[0].image_url.url.split(",")[1], "base64")).metadata();
+      assert.equal(image.width, 300); assert.equal(image.height, 400);
+      assert.equal(image.exif, undefined);
+      const context = JSON.parse(content[1].text);
+      assert.equal(context.confirmed_facts, "Unsaved synthetic facts");
+      assert.equal(context.date_label, "A handwritten date");
+      assert.equal(context.place_label, "A confirmed place");
       assert.match(payload.messages[0].content, /只给出一段/);
+      assert.match(payload.messages[0].content, /不要识别人脸/);
+      assert.equal(payload.reasoning_effort, "low");
       return Response.json({ choices: [{ message: { content: "One ready-to-edit caption" } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
     };
-    const draft = await adminPost("ai", { id: photoId, style: "俏皮", consent: true, facts: "Unsaved synthetic facts" });
+    const draft = await adminPost("ai", { id: photoId, style: "俏皮", consent: true, facts: "Unsaved synthetic facts",
+      date_label: "A handwritten date", place_label: "A confirmed place" });
     assert.equal(draft.status, 200);
     assert.equal((await draft.json()).draft, "One ready-to-edit caption");
     assert.equal((await pool.query("SELECT facts FROM photos WHERE id=$1", [photoId])).rows[0].facts, "A confirmed synthetic memory", "Generating must not save facts or approve stock");
     const cny = (await pool.query("SELECT cost_cny FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0].cost_cny;
     assert.equal(Number(cny), (20 * 0.8 + 10 * 2.8) / 1_000_000);
-    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 400);
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 429, "Duplicate click protection also applies to photo-only captions");
     await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    globalThis.fetch = async (_input, init) => {
+      const payload = JSON.parse(String(init?.body));
+      assert.equal(JSON.parse(payload.messages[1].content[1].text).confirmed_facts, "");
+      return Response.json({ choices: [{ message: { content: "Caption based only on visible details" } }], usage: { prompt_tokens: 900, completion_tokens: 40 } });
+    };
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "" })).status, 200, "Image-only input is valid");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    await unlink(path.join(temp, `${photoId}.display.webp`));
+    globalThis.fetch = async () => { throw new Error("Missing images must not fall back to text or call the provider"); };
+    assert.equal((await adminPost("ai", { id: photoId, style: "温柔", consent: true, facts: "Some facts" })).status, 404);
     let flashCalls = 0;
     globalThis.fetch = async (_input, init) => {
       flashCalls++;
@@ -181,6 +213,7 @@ try {
       assert.equal(payload.model, "glm-5.3-flash");
       assert.equal(payload.thinking.type, "enabled");
       assert.equal(payload.max_tokens, 2048);
+      assert.equal(typeof payload.messages[1].content, "string", "Connection test remains synthetic text only");
       return new Response("", { status: 401 });
     };
     const rejected = await adminPost("ai/test", { confirm: true });
