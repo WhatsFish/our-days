@@ -163,6 +163,8 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
   const [style, setStyle] = useState("温柔");
   const [placeDraft, setPlaceDraft] = useState(photo.place_label || photo.metadata_place || "");
   const [placeSource, setPlaceSource] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ error: boolean; message: string } | null>(null);
   useEffect(() => { setPlaceDraft(photo.place_label || photo.metadata_place || ""); }, [photo.place_label, photo.metadata_place]);
   const inferredDate = captureLabel(photo.captured_raw);
   return <article className="card photo-card">
@@ -170,13 +172,24 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
     <div className="badge">{photo.approved ? "已审核" : "待审核"} · 已排期/使用 {photo.used} 次</div>
     <details><summary>原始信息（仅管理者可见）</summary><p>拍摄时间：{photo.captured_raw || "未找到 EXIF 拍摄时间"}<br />GPS：{photo.latitude == null || photo.longitude == null ? "未找到" : `${photo.latitude}, ${photo.longitude}`}</p>
       <p className="muted">有 EXIF 拍摄时间或内嵌地点时自动预填，不按服务器时区转换。GPS 不会自动发送给外部地图，需点击下方按钮并同意。</p></details>
-    <form key={`${photo.caption}:${photo.date_label}:${photo.place_label}:${photo.approved}`} onSubmit={event => {
+    <form key={`${photo.caption}:${photo.date_label}:${photo.place_label}:${photo.facts}:${photo.approved}`}
+      onChange={() => setSaveFeedback(null)} onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
-      void perform(async () => { await api("photo", {
-        id: photo.id, date_label: value(form, "date_label"), place_label: value(form, "place_label"),
-        facts: value(form, "facts"), caption: value(form, "caption"), approved: form.has("approved"),
-      }); });
+      setSaving(true); setSaveFeedback(null);
+      void perform(async () => {
+        try {
+          await api("photo", {
+            id: photo.id, date_label: value(form, "date_label"), place_label: value(form, "place_label"),
+            facts: value(form, "facts"), caption: value(form, "caption"), approved: form.has("approved"),
+          });
+          setSaveFeedback({ error: false, message: `已保存 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}` });
+        } catch (error) {
+          setSaveFeedback({ error: true, message: error instanceof Error ? error.message : "保存失败，请重试" });
+          throw error;
+        } finally { setSaving(false); }
+      });
     }}>
+      <fieldset disabled={busy} className="min-w-0">
       <label>拍摄时间（可修改）<input name="date_label" defaultValue={photo.date_label || inferredDate} maxLength={80} placeholder="例如：大约 2019 年秋天" /></label>
       <p className="muted">{inferredDate ? "已从 EXIF 拍摄时间提取候选，请核对；缺失的时区不作推断。" : "照片未提供可识别的原始拍摄时间；微信转发、截图或导出可能移除 EXIF。建议上传相机原图，或手动补充。"}</p>
       <label>地点<input name="place_label" value={placeDraft} onChange={event => setPlaceDraft(event.target.value)} maxLength={120} placeholder="城市 / 景点；不知道可以留空" /></label>
@@ -185,7 +198,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
         if (window.confirm("将照片 GPS 四舍五入到约百米精度后，发送给 OpenStreetMap / Nominatim 解析城市？不发送原图。候选地点需核对后手动保存。")) {
           void perform(async () => {
             const result = await api<{ place: string; source: string }>("photo/place", { id: photo.id, consent: true });
-            setPlaceDraft(result.place); setPlaceSource(result.source);
+            setPlaceDraft(result.place); setPlaceSource(result.source); setSaveFeedback(null);
           }, "城市候选已填入；核对后点击照片的保存按钮");
         }
       }}>根据 GPS 解析城市</button>}
@@ -193,7 +206,17 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
       <label>当时发生了什么<textarea name="facts" defaultValue={photo.facts} maxLength={3000} placeholder="只写你确认的事实。供整理与 AI 润色使用，不直接展示给收信人。" /></label>
       <label>给她的文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} placeholder="想对她说的话…" /></label>
       <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />我已核对照片、时间、地点和文案，允许排期</label>
-      <div className="actions"><button disabled={busy}>保存</button><button type="button" className="quiet" onClick={() => setPreview(!preview)}>预览已保存内容</button></div>
+      <div className="actions">
+        <button disabled={busy} aria-busy={saving}>{saving ? "保存中…" : "保存"}</button>
+        <button type="button" className="quiet" onClick={() => setPreview(!preview)}>预览已保存内容</button>
+      </div>
+      </fieldset>
+      <div aria-live="polite" aria-atomic="true">
+        {saving && <p className="muted" role="status">正在保存，请稍候…</p>}
+        {!saving && saveFeedback && <p className={saveFeedback.error ? "alert error" : "alert"} role={saveFeedback.error ? "alert" : "status"}>
+          {saveFeedback.message}{saveFeedback.error ? "；请检查后重新保存。" : "，可以继续排期或生成文案。"}
+        </p>}
+      </div>
     </form>
     {preview && <Letter snapshot={{ photo_id: photo.id, date_label: photo.date_label, place_label: photo.place_label, caption: photo.caption, weather: "", almanac: "", star_note: "" }} title="来信预览" />}
     <details><summary>AI 帮我润色（可选）</summary>
