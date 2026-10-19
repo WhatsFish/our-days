@@ -17,6 +17,8 @@ RUN groupadd -g 10001 ourdays && useradd -u 10001 -g ourdays ourdays
 COPY scripts ./scripts
 COPY src/lib ./src/lib
 COPY db ./db
+COPY assets/fonts ./assets/fonts
+ENV FONTCONFIG_FILE=/app/assets/fonts/fonts.conf
 USER 10001:10001
 CMD ["node_modules/.bin/tsx", "scripts/tick.ts"]
 

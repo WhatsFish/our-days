@@ -22,10 +22,12 @@ test("portrait photos occupy the card width and retain their lower corners witho
   assert.ok(info.height > 1500);
   const left = pixel(80, 1000);
   assert.ok(left[0] > 170 && left[1] < 100, "Portrait image must extend almost full-width well below the old fixed-height box");
-  const lowerCorner = pixel(56 + 968 - 20, 132 + 1291 - 20);
+  const lowerCorner = pixel(56 + 968 - 20, 56 + 1291 - 20);
   assert.ok(lowerCorner[1] > 120 && lowerCorner[0] < 100, "Original lower-right marker must remain visible, not cropped");
   assert.ok(card.length < 2 * 1024 * 1024);
   assert.equal((await sharp(card).metadata()).exif, undefined);
+  const upperBorder = pixel(540, 28);
+  assert.ok(upperBorder.every(channel => channel > 245), "Top white border must have no branding/date text");
 });
 test("card height follows aspect ratio and almanac is absent even in legacy snapshots", async () => {
   const portrait = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: "#809070" } }).jpeg().toBuffer();
@@ -36,4 +38,6 @@ test("card height follows aspect ratio and almanac is absent even in legacy snap
   assert.ok(tallMeta.height! - wideMeta.height! > 500, "Portrait and landscape must not share one fixed canvas height");
   const legacy = await renderPhotoCard({ ...snapshot, almanac: "不应显示的黄历宜忌" }, "2026-10-19", landscape);
   assert.deepEqual(legacy, wide, "Hidden almanac must not affect content or spacing");
+  const otherSendDate = await renderPhotoCard(snapshot, "这个发送标题不应出现在相纸上", landscape);
+  assert.deepEqual(otherSendDate, wide, "No generated title or delivery date is added above the photograph");
 });

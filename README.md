@@ -328,18 +328,30 @@ reviewed caption or reporting an error if it cannot fit legibly. Draft facts and
 GPS coordinates are not printed on cards. Provider acceptance is recorded as
 accepted, never fabricated as delivered or read.
 
-The photograph keeps its aspect ratio and is not cropped into a landscape box:
-portrait input is fitted within 968x1900 pixels and the canvas grows with the
-resulting image height. The compact header and metadata/caption blocks follow
-the photograph without a fixed blank band. Landscape cards are correspondingly
-shorter. Almanac content is omitted even when a legacy snapshot contains it;
+The card uses an instant-photo style: an unbranded white top/side border,
+full-aspect photograph and a wider bottom paper area for handwriting. Portrait
+input is fitted within 968x1900 pixels and the canvas grows with the image.
+The photograph is not cropped into a landscape box. Capture date/place and
+caption appear below it using bundled Long Cang handwriting, with a Chinese
+fallback for missing glyphs. No generated title, service name or delivery date
+is added above the photograph. Landscape cards are correspondingly shorter.
+Almanac content is omitted even when a legacy snapshot contains it;
 the administrator switch is hidden and the live setting is disabled.
+
+`assets/fonts/LongCang-Regular.ttf` is distributed under the SIL Open Font
+License in `assets/fonts/OFL.txt`. Source:
+Google Fonts `ofl/longcang` at commit
+`20da2e7644bac5325abbc9f30848ae3162bfc974`, SHA-256
+`e5bf2c3f24ef2327c6f136d8f73e2f9dfdf44896fdbeb35a9515f44777bb91bc`.
+The worker includes the font and its Fontconfig configuration; it does not
+download fonts or send photograph contents to a font service at runtime.
 
 For a specifically approved real-material E2E check,
 `scripts/e2e-wecom.ts --check` renders the first two approved unused photos using
 the same snapshot/card functions without sending. `--send-two` additionally
-requires a new private `E2E_STATE_FILE`, marks both images E2E 1/2 and 2/2,
-and submits each exactly once using the shared WeCom sender. It holds the worker
+requires a new private `E2E_STATE_FILE`, records both test sequence numbers
+without adding a label to the unbranded photo, and submits each exactly once
+using the shared WeCom sender. It holds the worker
 lock and rechecks photo approval/content before submission. Failures or unknown
 submissions stop the batch without retry; an existing state file prevents a
 second run. It does not call AI, consume stock, create daily history records or

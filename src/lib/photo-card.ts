@@ -1,5 +1,6 @@
 import sharp from "sharp";
-import { mkdir, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import type { Snapshot } from "./domain";
 import { AppError } from "./domain";
 import { mediaPath } from "./media";
@@ -22,43 +23,44 @@ export function wrapCardText(text: string, width = 26) {
   }
   return lines;
 }
-export async function renderPhotoCard(snapshot: Snapshot, day: string, input?: Buffer) {
+export async function renderPhotoCard(snapshot: Snapshot, _day: string, input?: Buffer) {
   process.env.XDG_CACHE_HOME ??= "/tmp/our-days-fontcache";
+  process.env.FONTCONFIG_FILE ??= path.resolve("assets/fonts/fonts.conf");
+  try { await access(path.resolve("assets/fonts/LongCang-Regular.ttf")); }
+  catch { throw new AppError(503, "card_font_missing", "手写字体资源缺失，请检查部署"); }
   await mkdir(process.env.XDG_CACHE_HOME, { recursive: true, mode: 0o700 });
   const { data: photo, info: dimensions } = await sharp(input ?? await readFile(mediaPath(snapshot.photo_id, "display.webp")))
     .rotate().resize(968, 1900, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true });
   const photoX = Math.round((1080 - dimensions.width) / 2);
-  const photoY = 132;
-  const caption = wrapCardText(snapshot.caption, 24);
-  const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 36);
+  const photoY = 56;
+  const photoBottom = photoY + dimensions.height;
+  const caption = wrapCardText(snapshot.caption, 19);
+  const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 27);
   const extras = [snapshot.weather === "未配置天气城市" ? "" : snapshot.weather, snapshot.star_note]
-    .filter(Boolean).flatMap(text => wrapCardText(text, 36));
-  let y = photoY + dimensions.height + 44;
+    .filter(Boolean).flatMap(text => wrapCardText(text, 29));
+  let y = photoBottom + 64;
   const text: string[] = [];
   function add(lines: string[], size: number, lineHeight: number, color: string) {
     for (const line of lines) { text.push(`<text x="56" y="${y}" font-size="${size}" fill="${color}">${xmlEscape(line)}</text>`); y += lineHeight; }
   }
-  if (details.length && details.some(Boolean)) { add(details, 26, 40, "#6f786a"); y += 16; }
-  add(caption, 38, 60, "#354236");
+  if (details.length && details.some(Boolean)) { add(details, 34, 46, "#68645f"); y += 12; }
+  add(caption, 48, 66, "#343638");
   if (extras.length) {
     y += 14;
-    text.push(`<path d="M56 ${y - 24}H1024" stroke="#dce0d4"/>`);
-    add(extras, 26, 40, "#6f786a");
+    add(extras, 32, 44, "#68645f");
   }
-  y += 32;
+  y = Math.max(y + 56, photoBottom + 270);
   // Long reviewed captions stay complete; reject rather than silently truncate or send unreadable cards.
   if (y > 6200) throw new AppError(400, "card_too_long", "文案过长，无法生成清晰的微信图片，请缩短后重试");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="${y}">
-    <rect width="100%" height="100%" fill="#f7f3eb"/>
-    <g font-family="Noto Sans CJK SC,sans-serif">
-      <text x="56" y="76" font-size="30" fill="#354236">拾光</text>
-      <text x="1024" y="76" font-size="24" fill="#6f786a" text-anchor="end">${xmlEscape(day)}</text>
-      <path d="M56 102H1024" stroke="#dce0d4"/>
+    <rect width="100%" height="100%" fill="#fffefa"/>
+    <rect x="1" y="1" width="1078" height="${y - 2}" fill="none" stroke="#e5e2da" stroke-width="2"/>
+    <g font-family="'Long Cang','Noto Sans CJK SC',sans-serif">
       <image x="${photoX}" y="${photoY}" width="${dimensions.width}" height="${dimensions.height}" href="data:image/jpeg;base64,${photo.toString("base64")}"/>
       ${text.join("")}
     </g></svg>`;
-  const image = await sharp(Buffer.from(svg)).jpeg({ quality: 85 }).toBuffer();
+  const image = await sharp(Buffer.from(svg)).jpeg({ quality: 90 }).toBuffer();
   if (image.length > 2 * 1024 * 1024) throw new AppError(400, "card_too_large", "图片卡片超过发送上限，请缩短内容后重试");
   return image;
 }
