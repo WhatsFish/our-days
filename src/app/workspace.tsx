@@ -224,6 +224,15 @@ function LetterBox({ editions, busy, favorite }: { editions: Edition[]; busy: bo
 function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; busy: boolean; perform: Perform }) {
   const s = d.settings;
   const [feedback, setFeedback] = useState("");
+  const [weatherCity, setWeatherCity] = useState(s.weather_city);
+  const [weatherLat, setWeatherLat] = useState(s.weather_lat === null ? "" : String(s.weather_lat));
+  const [weatherLon, setWeatherLon] = useState(s.weather_lon === null ? "" : String(s.weather_lon));
+  useEffect(() => {
+    setWeatherCity(s.weather_city);
+    setWeatherLat(s.weather_lat === null ? "" : String(s.weather_lat));
+    setWeatherLon(s.weather_lon === null ? "" : String(s.weather_lon));
+  }, [s.weather_city, s.weather_lat, s.weather_lon]);
+  const weatherReady = weatherLat.trim() !== "" && weatherLon.trim() !== "";
   return <section className="card">
     <h2>定时任务配置</h2>
     <p className="muted">每天一张，FIFO。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>
@@ -237,19 +246,30 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
         timezone: value(form, "timezone"), send_time: value(form, "send_time"), paused: !form.has("enabled"),
         weather_lat: coordinate("weather_lat"), weather_lon: coordinate("weather_lon"), weather_city: value(form, "weather_city"),
         almanac: false, star_note: value(form, "star_note"),
-        }); setFeedback("设置已保存"); }
+        }); setFeedback(weatherReady ? "设置已保存，天气将按填写的经纬度查询。" : "设置已保存；天气未启用，城市名不能代替经纬度。"); }
         catch (error) { setFeedback(error instanceof Error ? error.message : "保存失败"); throw error; }
       });
     }}>
       <label>每日发送时间<input name="send_time" type="time" defaultValue={s.send_time} required /></label>
       <label className="check"><input name="enabled" type="checkbox" defaultChecked={!s.paused} disabled={!d.pushEnabled || !d.pushReady || d.pushChannel !== "wecom"} />开启每日自动发送</label>
       <p className="muted wide">当前按 {s.timezone === "Asia/Shanghai" ? "北京时间" : s.timezone} 发送。时区是“几点”的计算规则，不是第二份排期。</p>
-      <details className="wide"><summary>可选：天气、每日小笺与时区</summary>
+      <section className="wide" aria-labelledby="weather-settings-title">
+        <h3 id="weather-settings-title">天气（可选）</h3>
+        <p className="muted" id="weather-help">经纬度决定查询哪里的天气，城市名只用于显示，不会自动定位。要获取天气，请同时填写纬度和经度；更换城市时也要修改坐标。</p>
+        <label>天气城市名（显示用）<input name="weather_city" value={weatherCity} onChange={event => setWeatherCity(event.target.value)}
+          maxLength={80} placeholder="例如：湖州（浙江，中国）" aria-describedby="weather-help" /></label>
+        <div className="form-grid"><label>纬度（南北，-90～90）<input name="weather_lat" type="number" step="any" min="-90" max="90"
+          value={weatherLat} onChange={event => setWeatherLat(event.target.value)} placeholder="湖州示例：30.8703" aria-describedby="weather-example" /></label>
+          <label>经度（东西，-180～180）<input name="weather_lon" type="number" step="any" min="-180" max="180"
+            value={weatherLon} onChange={event => setWeatherLon(event.target.value)} placeholder="湖州示例：120.0933" aria-describedby="weather-example" /></label></div>
+        <p className="muted" id="weather-example">浙江湖州市区示例：城市名填「湖州」，纬度填 30.8703，经度填 120.0933。不用精确到住址，也不影响照片的拍摄地点。两项坐标都清空即可关闭天气。</p>
+        <p className={weatherReady ? "muted" : weatherCity.trim() || weatherLat || weatherLon ? "alert error" : "muted"} role="status">
+          {weatherReady ? "经纬度已填写，保存后将通过 Open-Meteo 查询该位置的天气。" :
+            weatherCity.trim() || weatherLat || weatherLon ? "经纬度尚未填完整：只保存城市名不会启用天气，请将纬度和经度两项一起填写。" : "天气已关闭：如需启用，请填写城市名和两项坐标。"}
+        </p>
+      </section>
+      <details className="wide"><summary>可选：每日小笺与时区</summary>
       <label>时区（默认北京时间，一般不用修改）<input name="timezone" defaultValue={s.timezone} required /></label>
-      <label>天气城市（不需要可留空）<input name="weather_city" defaultValue={s.weather_city} maxLength={80} /></label>
-      <div className="form-grid"><label>城市纬度<input name="weather_lat" type="number" step="any" min="-90" max="90" defaultValue={s.weather_lat ?? ""} /></label>
-        <label>城市经度<input name="weather_lon" type="number" step="any" min="-180" max="180" defaultValue={s.weather_lon ?? ""} /></label></div>
-      <p className="muted wide">填写的是城市位置，不是她的实时位置。配置后会向 Open-Meteo 请求该城市天气；清空经纬度即可关闭。</p>
       <label className="wide">每日小笺（可留空；首版由你编辑，不伪造运势）<textarea name="star_note" maxLength={300} defaultValue={s.star_note} /></label>
       </details>
       <button disabled={busy}>保存设置</button>

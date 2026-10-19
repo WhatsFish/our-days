@@ -360,6 +360,10 @@ and provider acceptance, not captions, coordinates or credentials. Actual
 ordinary-WeChat receipt must still be confirmed by the operator.
 For a single style revision, `--send-one` uses the same protected runner for only
 the first approved unused photo, rather than sending another two-image batch.
+Add `--require-weather` to cancel before any submission if the live forecast
+cannot be included. Weather settings distinguish the display-only city label
+from the required latitude/longitude pair, show Huzhou examples, and warn when
+only a city name is filled. Clearing both coordinates disables weather.
 
 ## PushPlus alternative
 

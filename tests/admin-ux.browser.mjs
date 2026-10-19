@@ -135,6 +135,15 @@ try {
   await page.getByText("GLM-5.3-Flash · 已内置", { exact: true }).waitFor();
   assert.equal(await page.getByRole("checkbox", { name: /费用限额/ }).count(), 0);
   assert.equal(await page.getByLabel(/输入单价/).count(), 0);
+  await page.getByLabel("天气城市名（显示用）", { exact: true }).fill("湖州");
+  await page.getByRole("status").filter({ hasText: "只保存城市名不会启用天气" }).waitFor();
+  await page.getByPlaceholder("湖州示例：30.8703", { exact: true }).fill("30.8703");
+  await page.getByRole("status").filter({ hasText: "经纬度尚未填完整" }).waitFor();
+  await page.getByPlaceholder("湖州示例：120.0933", { exact: true }).fill("120.0933");
+  await page.getByRole("status").filter({ hasText: "经纬度已填写" }).waitFor();
+  await page.getByPlaceholder("湖州示例：30.8703", { exact: true }).fill("");
+  await page.getByPlaceholder("湖州示例：120.0933", { exact: true }).fill("");
+  await page.getByRole("status").filter({ hasText: "只保存城市名不会启用天气" }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "队列与素材", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).first().click();

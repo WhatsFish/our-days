@@ -12,6 +12,7 @@ import { sendWecomImage, WecomSendError } from "../src/lib/wecom-image.mjs";
 const one = process.argv.includes("--send-one");
 const count = one ? 1 : 2;
 const send = one || process.argv.includes("--send-two");
+const requireWeather = process.argv.includes("--require-weather");
 if ((process.argv.includes("--check") && send) || (one && process.argv.includes("--send-two"))) {
   throw new Error("Choose --check, --send-one or --send-two");
 }
@@ -37,6 +38,9 @@ try {
   for (const [index, photo] of photos.entries()) {
     if (!photo.caption.trim()) throw new Error("Missing approved caption; no messages submitted");
     const snapshot = await buildSnapshot(photo, settings, localDay(new Date(), settings.timezone));
+    if (requireWeather && (!snapshot.weather || ["未配置天气城市", "天气暂未更新"].includes(snapshot.weather))) {
+      throw new Error("Weather is missing or unavailable; no preview messages submitted");
+    }
     const image = await renderPhotoCard(snapshot, `${localDay(new Date(), settings.timezone)} · ${label} ${index + 1}/${count}`);
     const meta = await sharp(image).metadata();
     if (meta.format !== "jpeg" || meta.width !== 1080 || !meta.height || meta.exif || image.length > 2 * 1024 * 1024) {
