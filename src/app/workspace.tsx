@@ -8,18 +8,19 @@ import { UploadPanel } from "./upload-panel";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
-type Delivery = { id: string; day: string; status: string; error_code: string | null; attempts: number };
+type Delivery = { id: string; edition_id: string; day: string; status: string; error_code: string | null; attempts: number };
 type Dashboard = {
   photos: Photo[]; editions: Edition[]; imports: ImportJob[]; deliveries: Delivery[];
   settings: Settings; worker: { last_tick: string | null; error_code: string | null } | null;
   bytes: number; quotaMb: number; pushEnabled: boolean; pushReady: boolean; pushChannel: string; aiEnabled: boolean; aiCost: string;
   ai: PublicAI;
+  nextPhotoId: string | null;
 };
 const base = "/our-days";
 const labels: Record<string, string> = {
   queued: "等待导入", processing: "正在导入", done: "已处理", failed: "失败",
   scheduled: "已排期", cancelled: "已取消", published: "已发布",
-  pending: "等待投递", sending: "提交中", accepted: "已受理，待渠道回执",
+  pending: "等待发送", sending: "正在提交", accepted: "平台已接受（不代表已读）",
   delivered: "渠道报告送达（不代表已读）", unknown: "状态未知，禁止自动重发", disabled: "仅网页发布，未发送通知",
 };
 async function api<T>(route: string, data?: unknown): Promise<T> {
@@ -97,7 +98,7 @@ export function Workspace() {
       </form>
     </section> : <>
       <nav className="tabs" aria-label="工作区">
-        {[[ "letters", "来信" ], ...(role === "admin" ? [["library", "照片库"], ["schedule", "排期"], ["settings", "设置与投递"]] : [])].map(([key, name]) =>
+        {(role === "admin" ? [["library", "素材库"], ["history", "发送记录"], ["settings", "设置"]] : [["letters", "回忆相册"]]).map(([key, name]) =>
           <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
         <button className="quiet refresh" disabled={busy} onClick={() => void perform(async () => {}, "已刷新")}>刷新</button>
       </nav>
@@ -106,36 +107,27 @@ export function Workspace() {
       })} />}
       {role === "admin" && dashboard && <>
         <div className="statusbar">
-          <span>{dashboard.settings.paused ? "发布已暂停" : "定时发布已开启"}</span>
-          <span>{dashboard.pushEnabled && dashboard.pushReady ? "真实微信通道已启用" : "微信推送关闭 / 未配置"}</span>
+          <span>{dashboard.settings.paused ? "每日自动发送：已暂停" : `每日自动发送：${dashboard.settings.send_time}`}</span>
+          <span>{dashboard.pushChannel === "wecom" && dashboard.pushReady ? "企业微信图片通道已配置" : "自动发图通道尚未配置"}</span>
           <span>{(dashboard.bytes / 1024 / 1024).toFixed(1)} / {dashboard.quotaMb} MB</span>
         </div>
         {tab === "library" && <>
+          <section className="card">
+            <h2>维护素材，其余交给每天的发送任务。</h2>
+            <p>待发送 <strong>{dashboard.photos.filter(photo => photo.approved && !photo.used).length}</strong> 张 · 待确认 <strong>{dashboard.photos.filter(photo => !photo.approved).length}</strong> 张</p>
+            <p className="muted">填好照片信息和文案，确认“加入待发送”。系统每天按加入顺序选一张未使用的素材，不需要逐日排期，不会自动重复旧照片。素材用完会在运行状态中提示。</p>
+            {dashboard.nextPhotoId && <div className="row">
+              <img className="mini" src={`${base}/api/media/${dashboard.nextPhotoId}/thumb`} alt="下一张待发送照片" />
+              <div><strong>下一张</strong><p className="muted">{dashboard.photos.find(photo => photo.id === dashboard.nextPhotoId)?.caption.slice(0, 60)}</p></div>
+            </div>}
+            {dashboard.settings.paused && <p className="muted">当前暂停。准备好后在「设置」选择每日时间并开启自动发送。</p>}
+          </section>
           <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           {!dashboard.photos.length && <p className="empty">照片库还是空的。第一封来信，从一张照片开始。</p>}
           <div className="photo-grid">{dashboard.photos.map(photo => <PhotoEditor key={photo.id} photo={photo} busy={busy}
             aiEnabled={dashboard.aiEnabled} perform={perform} />)}</div>
         </>}
-        {tab === "schedule" && <section className="card">
-          <h2>给未来留一封信</h2><p className="muted">每天一封，按 {dashboard.settings.timezone} {dashboard.settings.send_time} 发布。同一天重新保存会替换未发布排期；已发布内容不会被覆盖。</p>
-          <form className="form-grid" onSubmit={event => {
-            event.preventDefault(); const form = new FormData(event.currentTarget);
-            void perform(async () => { await api("schedule", { day: value(form, "day"), photo_id: value(form, "photo_id"), title: value(form, "title"), notify: form.has("notify") }); });
-          }}>
-            <label>日期<input type="date" name="day" required /></label>
-            <label>标题<input name="title" defaultValue="今天，想和你重温一个瞬间。" required maxLength={80} /></label>
-            <label className="wide">已审核照片<select name="photo_id" required defaultValue=""><option value="" disabled>选择一张照片</option>
-              {dashboard.photos.filter(p => p.approved).map(p => <option key={p.id} value={p.id}>{p.date_label || "时间待补充"} · {p.place_label || "地点待补充"} · {p.caption.slice(0, 25)} · 已用 {p.used} 次</option>)}
-            </select></label>
-            <label className="check wide"><input name="notify" type="checkbox" disabled={!dashboard.pushEnabled || !dashboard.pushReady} />同时发送微信提醒（还需全局开启）</label>
-            <button disabled={busy || !dashboard.photos.some(p => p.approved)}>保存排期</button>
-          </form>
-          <div className="rows">{dashboard.editions.map(e => <div className="row" key={e.id}>
-            <img className="mini" src={`${base}/api/media/${e.photo_id}/thumb`} alt="" />
-            <div><strong>{e.day} · {e.title}</strong><p className="muted">{labels[e.status]} · {e.notify ? "计划微信提醒" : "仅网页"} · {new Date(e.send_at).toLocaleString("zh-CN", { timeZone: dashboard.settings.timezone })}</p></div>
-            {e.status === "scheduled" && <button className="quiet" disabled={busy} onClick={() => void perform(async () => { await api("cancel", { id: e.id }); }, "已取消排期")}>取消</button>}
-          </div>)}</div>
-        </section>}
+        {tab === "history" && <SendHistory dashboard={dashboard} busy={busy} perform={perform} />}
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
       </>}
     </>}
@@ -157,7 +149,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
   const inferredDate = captureLabel(photo.captured_raw);
   return <article className="card photo-card">
     <img src={`${base}/api/media/${photo.id}/thumb`} alt="私密照片预览" loading="lazy" />
-    <div className="badge">{photo.approved ? "已审核" : "待审核"} · 已排期/使用 {photo.used} 次</div>
+    <div className="badge">{photo.used ? "已安排或生成发送记录" : photo.approved ? "待发送" : "待确认"}</div>
     <details><summary>原始信息（仅管理者可见）</summary><p>拍摄时间：{photo.captured_raw || "未找到 EXIF 拍摄时间"}<br />GPS：{photo.latitude == null || photo.longitude == null ? "未找到" : `${photo.latitude}, ${photo.longitude}`}</p>
       <p className="muted">有 EXIF 拍摄时间或内嵌地点时自动预填，不按服务器时区转换。GPS 不会自动发送给外部地图，需点击下方按钮并同意。</p></details>
     <form key={`${photo.caption}:${photo.date_label}:${photo.place_label}:${photo.facts}:${photo.approved}`}
@@ -193,7 +185,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
       {placeSource && <p className="muted">{placeSource} · 地图数据 © OpenStreetMap contributors</p>}
       <label>当时发生了什么<textarea name="facts" defaultValue={photo.facts} maxLength={3000} placeholder="只写你确认的事实。供整理与 AI 润色使用，不直接展示给收信人。" /></label>
       <label>给她的文案<textarea name="caption" defaultValue={photo.caption} maxLength={3000} placeholder="想对她说的话…" /></label>
-      <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />我已核对照片、时间、地点和文案，允许排期</label>
+      <label className="check"><input type="checkbox" name="approved" defaultChecked={photo.approved} />信息和文案已确认，加入待发送素材</label>
       <div className="actions">
         <button disabled={busy} aria-busy={saving}>{saving ? "保存中…" : "保存"}</button>
         <button type="button" className="quiet" onClick={() => setPreview(!preview)}>预览已保存内容</button>
@@ -202,7 +194,7 @@ function PhotoEditor({ photo, busy, aiEnabled, perform }: { photo: Photo; busy: 
       <div aria-live="polite" aria-atomic="true">
         {saving && <p className="muted" role="status">正在保存，请稍候…</p>}
         {!saving && saveFeedback && <p className={saveFeedback.error ? "alert error" : "alert"} role={saveFeedback.error ? "alert" : "status"}>
-          {saveFeedback.message}{saveFeedback.error ? "；请检查后重新保存。" : "，可以继续排期或生成文案。"}
+          {saveFeedback.message}{saveFeedback.error ? "；请检查后重新保存。" : photo.used ? "，历史发送内容保持不变，不会自动重发。" : photo.approved ? "，已加入待发送素材。" : "，确认内容后可勾选加入待发送。"}
         </p>}
       </div>
     </form>
@@ -254,39 +246,69 @@ function LetterBox({ editions, busy, favorite }: { editions: Edition[]; busy: bo
 
 function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; busy: boolean; perform: Perform }) {
   const s = d.settings;
+  const [feedback, setFeedback] = useState("");
   return <section className="card">
-    <h2>按自己的节奏来</h2><p className="muted">改变时区和发送时间只影响新保存的排期。旧排期请重新保存。暂停时不发布；恢复后不自动补发错过的日子。</p>
+    <h2>每天什么时候发送？</h2>
+    <p className="muted">每天一张，从已确认、未使用的素材中按加入顺序自动选择。你不需要给照片指定日期。开启后从下一个发送时间开始，不补发过去的日子；素材用完会停止，不会反复发送旧照片。</p>
     <form className="form-grid" onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
+      if (s.paused && form.has("enabled") && !window.confirm("确认开启每日自动发图？将从下一个发送时间开始，每天向服务器已配置的接收者发送一张已确认素材。")) return;
       const coordinate = (key: string) => value(form, key).trim() === "" ? null : Number(value(form, key));
-      void perform(async () => { await api("settings", {
-        timezone: value(form, "timezone"), send_time: value(form, "send_time"), paused: form.has("paused"),
+      setFeedback("");
+      void perform(async () => {
+        try { await api("settings", {
+        timezone: value(form, "timezone"), send_time: value(form, "send_time"), paused: !form.has("enabled"),
         weather_lat: coordinate("weather_lat"), weather_lon: coordinate("weather_lon"), weather_city: value(form, "weather_city"),
         almanac: form.has("almanac"), star_note: value(form, "star_note"),
-      }); });
+        }); setFeedback("设置已保存"); }
+        catch (error) { setFeedback(error instanceof Error ? error.message : "保存失败"); throw error; }
+      });
     }}>
-      <label>时区<input name="timezone" defaultValue={s.timezone} required /></label>
-      <label>每日时间<input name="send_time" type="time" defaultValue={s.send_time} required /></label>
-      <label className="check wide"><input name="paused" type="checkbox" defaultChecked={s.paused} />暂停自动发布与新通知</label>
-      <label>天气城市<input name="weather_city" defaultValue={s.weather_city} maxLength={80} /></label>
+      <label>每日发送时间<input name="send_time" type="time" defaultValue={s.send_time} required /></label>
+      <label className="check"><input name="enabled" type="checkbox" defaultChecked={!s.paused} disabled={!d.pushEnabled || !d.pushReady || d.pushChannel !== "wecom"} />开启每日自动发送</label>
+      <p className="muted wide">当前按 {s.timezone === "Asia/Shanghai" ? "北京时间" : s.timezone} 发送。时区是“几点”的计算规则，不是第二份排期。</p>
+      <details className="wide"><summary>可选：天气、每日小笺与时区</summary>
+      <label>时区（默认北京时间，一般不用修改）<input name="timezone" defaultValue={s.timezone} required /></label>
+      <label>天气城市（不需要可留空）<input name="weather_city" defaultValue={s.weather_city} maxLength={80} /></label>
       <div className="form-grid"><label>城市纬度<input name="weather_lat" type="number" step="any" min="-90" max="90" defaultValue={s.weather_lat ?? ""} /></label>
         <label>城市经度<input name="weather_lon" type="number" step="any" min="-180" max="180" defaultValue={s.weather_lon ?? ""} /></label></div>
       <p className="muted wide">填写的是城市位置，不是她的实时位置。配置后会向 Open-Meteo 请求该城市天气；清空经纬度即可关闭。</p>
       <label className="check wide"><input type="checkbox" name="almanac" defaultChecked={s.almanac} />展示农历与传统宜忌</label>
       <label className="wide">每日小笺（可留空；首版由你编辑，不伪造运势）<textarea name="star_note" maxLength={300} defaultValue={s.star_note} /></label>
+      </details>
       <button disabled={busy}>保存设置</button>
+      {feedback && <p className="wide alert" role="status">{feedback}</p>}
     </form>
     <hr /><AISettingsPanel config={d.ai} busy={busy} perform={perform} />
-    <hr /><h2>运行状态</h2>
+    <hr /><details><summary>高级：运行状态与成本</summary>
     <p>最近任务成功：{d.worker?.last_tick ? new Date(d.worker.last_tick).toLocaleString() : "尚未运行"}{d.worker?.error_code && <span className="error-text">错误：{d.worker.error_code}</span>}</p>
     <p>本月 AI 记录 / 预留：${Number(d.aiCost).toFixed(4)}</p>
-    <p className="muted">当前通道：{d.pushChannel === "wechat-test" ? "微信测试号直连（不经过 PushPlus）" : "PushPlus"}。真实推送需要管理员在服务器配置密钥与 PUSH_ENABLED，然后在排期中勾选通知。这里只展示配置状态，不显示密钥。未知投递状态请去平台核实，不能直接重发。</p>
-    <div className="rows">{d.deliveries.map(delivery => <div className="row" key={delivery.id}>
-      <div><strong>{delivery.day} · {labels[delivery.status]}</strong><p className="muted">{delivery.error_code} · 已尝试 {delivery.attempts} 次</p></div>
-      {delivery.status === "failed" && delivery.attempts < 3 && <button className="quiet" disabled={busy} onClick={() => {
-        if (window.confirm("确认该消息未送达并重试？仅支持当天消息，真实微信可能收到通知。")) void perform(async () => { await api("delivery/retry", { id: delivery.id, confirm: true }); }, "已进入重试队列");
-      }}>确认后重试</button>}
-    </div>)}</div>
+    <p className="muted">发送通道：{d.pushChannel === "wecom" ? "企业微信应用图片 → 普通微信插件" : "旧版通道（尚未切换）"}。密钥由服务器私密保存；投递状态请看「发送记录」。没有已读追踪。</p>
+    </details>
+  </section>;
+}
+
+function SendHistory({ dashboard: d, busy, perform }: { dashboard: Dashboard; busy: boolean; perform: Perform }) {
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  return <section className="card">
+    <h2>发送记录</h2>
+    <p className="muted">这里记录系统生成了什么、是否提交给消息平台，以及失败原因。“平台已接受”不等于手机已收到或对方已读。之前用独立脚本手动发送的演示图不在这里，也不会伪造历史记录。</p>
+    {!d.editions.length && <p className="empty">还没有自动发送记录。准备素材并开启每日发送后，这里会出现真实记录。</p>}
+    {d.editions.map(edition => {
+      const delivery = d.deliveries.find(item => item.edition_id === edition.id);
+      return <article key={edition.id}>
+        <div className="row">
+          <img className="mini" src={`${base}/api/media/${edition.photo_id}/thumb`} alt="" />
+          <div><strong>{edition.day}</strong><p className="muted">{delivery ? labels[delivery.status] : edition.status === "scheduled" ? "已指定日期，等待任务" : edition.status === "cancelled" ? "已取消" : "内容已生成，尚无投递记录"}{delivery?.error_code ? ` · ${delivery.error_code}` : ""}</p></div>
+          {edition.snapshot && <button className="quiet" onClick={() => setPreviewId(previewId === edition.id ? null : edition.id)}>查看内容</button>}
+          {edition.status === "scheduled" && <button className="quiet" disabled={busy} onClick={() => void perform(async () => { await api("cancel", { id: edition.id }); }, "已取消指定日期内容")}>取消</button>}
+          {delivery?.status === "failed" && delivery.attempts < 3 && <button className="quiet" disabled={busy} onClick={() => {
+            if (window.confirm("确认这条消息未送达并重试？仅支持今天的失败记录，会真实发送消息。")) void perform(async () => { await api("delivery/retry", { id: delivery.id, confirm: true }); }, "已加入重试队列");
+          }}>重试</button>}
+        </div>
+        {previewId === edition.id && edition.snapshot && <Letter snapshot={edition.snapshot} title={edition.title} />}
+      </article>;
+    })}
   </section>;
 }
 

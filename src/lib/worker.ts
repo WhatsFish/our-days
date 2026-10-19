@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { pool, query, transaction } from "./db";
-import { AppError, localDay, type Photo, type Settings } from "./domain";
+import { AppError, localDay, type Photo, type Settings, type Snapshot } from "./domain";
 import { buildSnapshot } from "./content";
 import { processImport } from "./media";
 import { deliveryStatus, sendNotice } from "./push";
 import { sendWechatNotice, wechatReady } from "./wechat";
+import { READY_PHOTO_SQL } from "./photo-queue";
+import { sendPhotoCard } from "./photo-card";
 
 export async function tick() {
   const lock = await pool.connect();
@@ -22,6 +24,22 @@ export async function tick() {
     const [settings] = await query<Settings>("SELECT * FROM settings WHERE id=true");
     if (!settings.paused) {
       const today = localDay(new Date(), settings.timezone);
+      if ((process.env.PUSH_CHANNEL ?? "wechat-test") === "wecom") {
+        await transaction(async client => {
+          const [timing] = (await client.query<{ due: boolean }>(
+            `SELECT now()>=($1::date+send_time::time) AT TIME ZONE timezone
+              AND (enabled_at IS NULL OR enabled_at<=($1::date+send_time::time) AT TIME ZONE timezone) AS due
+             FROM settings WHERE id=true FOR SHARE`, [today])).rows;
+          if (!timing.due || (await client.query("SELECT id FROM editions WHERE day=$1::date", [today])).rowCount) return;
+          const [next] = (await client.query<Photo>(`${READY_PHOTO_SQL} FOR UPDATE OF p SKIP LOCKED`)).rows;
+          if (!next) throw new AppError(409, "photo_queue_empty", "已审核的待发送照片用完了，请补充素材");
+          await client.query(
+            `INSERT INTO editions(id,day,photo_id,title,send_at,notify)
+             SELECT $1,$2::date,$3,'今天的照片',($2::date+send_time::time) AT TIME ZONE timezone,true
+             FROM settings WHERE id=true ON CONFLICT(day) DO NOTHING`,
+            [randomUUID(), today, next.id]);
+        });
+      }
       const due = await query<{ id: string; day: string; photo_id: string }>(
         "SELECT id,day::text,photo_id FROM editions WHERE status='scheduled' AND send_at<=now() AND day=$1::date ORDER BY send_at", [today]);
       for (const edition of due) {
@@ -39,22 +57,23 @@ export async function tick() {
             "UPDATE editions SET status='published',snapshot=$2::jsonb,published_at=now() WHERE id=$1 AND status='scheduled' RETURNING notify",
             [edition.id, JSON.stringify(snapshot)]);
           const channel = process.env.PUSH_CHANNEL ?? "wechat-test";
-          if (!["wechat-test", "pushplus"].includes(channel)) throw new AppError(503, "push_channel", "通知渠道配置无效");
+          if (!["wechat-test", "pushplus", "wecom"].includes(channel)) throw new AppError(503, "push_channel", "通知渠道配置无效");
           if (published.rowCount) await client.query("INSERT INTO deliveries(id,edition_id,status,channel) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
             [randomUUID(), edition.id, published.rows[0].notify && process.env.PUSH_ENABLED === "true" ? "pending" : "disabled", channel]);
         });
       }
-      const pending = await query<{ id: string; edition_id: string; channel: string; day: string }>(
-        `SELECT d.id,d.edition_id,d.channel,e.day::text FROM deliveries d JOIN editions e ON e.id=d.edition_id
+      const pending = await query<{ id: string; edition_id: string; channel: string; day: string; snapshot: Snapshot }>(
+        `SELECT d.id,d.edition_id,d.channel,e.day::text,e.snapshot FROM deliveries d JOIN editions e ON e.id=d.edition_id
          WHERE d.status='pending' AND e.day=$1::date ORDER BY e.send_at LIMIT 1`, [today]);
       for (const delivery of pending) {
         if (process.env.PUSH_ENABLED !== "true") continue;
-        if (delivery.channel === "wechat-test" ? !wechatReady() :
+        if (delivery.channel === "wecom" ? !(process.env.WECOM_CORP_ID && process.env.WECOM_APP_SECRET && process.env.WECOM_AGENT_ID && process.env.WECOM_USER_ID) :
+            delivery.channel === "wechat-test" ? !wechatReady() :
             (!process.env.PUSHPLUS_TOKEN || !process.env.PUSHPLUS_TO || !process.env.PUSHPLUS_SECRET_KEY)) {
           throw new AppError(503, "push_config", "推送及状态查询配置不完整");
         }
         await query("UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=now() WHERE id=$1", [delivery.id]);
-        const result = delivery.channel === "wechat-test"
+        const result = delivery.channel === "wecom" ? await sendPhotoCard(delivery.snapshot, delivery.day) : delivery.channel === "wechat-test"
           ? await sendWechatNotice(delivery.edition_id, delivery.day)
           : await sendNotice(delivery.edition_id);
         await query("UPDATE deliveries SET status=$2,record_id=$3,error_code=$4,updated_at=now() WHERE id=$1",

@@ -42,14 +42,19 @@ services:
       context: .
       target: worker
     profiles: [jobs]
-    env_file: .env
+    env_file:
+      - .env
+      - /home/liharr/.config/our-days-wecom.env
     environment:
       PG_HOST: db
       PG_USER: our_days
       PG_DB: our_days
       MEDIA_ROOT: /media
       PRIVATE_CONFIG_DIR: /config
+      XDG_CACHE_HOME: /tmp/our-days-fontcache
     volumes:
+      - /usr/share/fonts:/usr/share/fonts:ro
+      - /etc/fonts:/etc/fonts:ro
       - type: bind
         source: /data/our-days-config
         target: /config

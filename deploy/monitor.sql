@@ -9,9 +9,8 @@ SELECT
   (SELECT count(*) FROM editions, settings
      WHERE status='scheduled' AND NOT paused
        AND send_at < now()-interval '15 minutes') AS missed_editions,
-  (SELECT count(*) FROM editions,settings WHERE status='scheduled'
-     AND day BETWEEN (now() AT TIME ZONE timezone)::date + 1
-     AND (now() AT TIME ZONE timezone)::date + 7) AS next_week_count,
+  (SELECT count(*) FROM photos p WHERE approved AND NOT EXISTS
+     (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')) AS next_week_count,
   (SELECT count(*) FROM deliveries d JOIN editions e ON e.id=d.edition_id
      WHERE d.status IN ('failed','unknown','pending','sending')
      OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention;

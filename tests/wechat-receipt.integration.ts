@@ -70,6 +70,15 @@ try {
   assert.equal(importRows[0].id, importId);
   assert.equal(importRows[0].duplicates, 1);
   await pool.query("DELETE FROM imports WHERE id=$1", [importId]);
+  const dailySettings = { timezone: "Asia/Shanghai", send_time: "23:59", paused: true, weather_lat: null, weather_lon: null, weather_city: "", almanac: false, star_note: "" };
+  assert.equal((await adminPost("settings", dailySettings)).status, 200);
+  process.env.PUSH_ENABLED = "false";
+  assert.equal((await adminPost("settings", { ...dailySettings, paused: false })).status, 409);
+  Object.assign(process.env, { PUSH_ENABLED: "true", PUSH_CHANNEL: "wecom", WECOM_CONFIGURED: "true" });
+  assert.equal((await adminPost("settings", { ...dailySettings, paused: false })).status, 200);
+  assert.ok((await pool.query("SELECT enabled_at FROM settings")).rows[0].enabled_at);
+  assert.equal((await adminPost("settings", dailySettings)).status, 200);
+  process.env.PUSH_ENABLED = "false";
   assert.equal((await adminPost("ai/config", settings, reader)).status, 403);
   const saved = await adminPost("ai/config", settings);
   assert.equal(saved.status, 200);

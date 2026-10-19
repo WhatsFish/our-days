@@ -19,8 +19,10 @@ with optional WeChat notification. No personal content is included in this repos
   favorites and a reader archive. Future photos cannot be accessed by the reader.
 - A database-locked, restart-safe worker; publication and delivery are separate.
   No automatic resend after ambiguous network failures.
-- **WeChat test account direct API** (the default configured channel) and
-  **PushPlus** as an alternative. Both are disabled until explicitly enabled.
+- **WeCom application image messages via the ordinary-WeChat plugin** are the
+  primary channel. Legacy test-account templates and PushPlus are retained
+  for compatibility, not presented as interchangeable daily-image solutions.
+  Daily sending starts paused until an administrator explicitly enables it.
 - Optional Open-Meteo city weather and locally calculated lunar calendar.
   The daily encouragement is editorial text, not an invented horoscope.
 
@@ -34,14 +36,29 @@ with optional WeChat notification. No personal content is included in this repos
   Coordinates are never published in the reader page.
 - Prefilled date/place descriptions must still be reviewed. Missing EXIF is never replaced
   with file modification time. AI cannot approve or publish its own output.
-- No automatic catch-up after a missed local date, and no automatic photo
-  selection. Explicit scheduling avoids accidentally selecting a sensitive photo.
+- No automatic catch-up after a missed local date. In WeCom daily mode the
+  worker picks the oldest approved, unused photo at the configured local time.
+  Unapproved, previously used and manually reserved future photos are excluded.
 - The current archive shows the newest 366 editions; the photo list shows
   at most 1,000 records. This is a single-recipient application.
 - AI conversations, video, map lookup, multi-recipient delivery and automated
   cloud backups are not implemented.
 
 ## Runtime
+
+The administrator UI has three destinations: **素材库**, **发送记录**, **设置**.
+Upload and review photos/captions, select one daily send time and explicitly
+enable automatic sending. There is no required per-photo scheduling step.
+Timezone defaults to Asia/Shanghai and is an advanced option, not a separate
+schedule. Weather/calendar/editorial notes and AI credentials are optional.
+The reader's archive remains a separate authenticated view, not read tracking.
+
+In daily mode, one database edition per local date prevents repeat ticks or
+concurrent workers from creating multiple messages. The approved stock is FIFO.
+Previously created explicit date editions are preserved and take priority;
+cancelling one skips that local date rather than silently replacing it. Enabling
+after today's configured time waits until the next day's time. Failed or unknown
+submissions do not advance to a different photo on the same date.
 
 Node.js 22+, Next.js 15.5, React 19, PostgreSQL 16, Tailwind, Sharp and ExifTool.
 The older fleet Next.js 14 version was not used because published advisories
@@ -236,7 +253,7 @@ reconstructed from submission IDs. Tag-targeted broadcasts (`is_to_all=false`)
 do not enter the account's public historical-post list; that list is distinct
 from a recipient's chat history.
 
-## Alternative under evaluation: WeCom application via WeChat plugin
+## Primary delivery: WeCom application via WeChat plugin
 
 Official WeCom documentation supports proactive image application messages to
 active **internal members** in the application's visible/licensed scope:
@@ -245,7 +262,9 @@ The ordinary-WeChat plugin can receive application messages:
 <https://open.work.weixin.qq.com/help2/pc/18121>.
 This is not external-customer messaging or a customer-service reply window.
 
-This candidate is **not yet verified for this operator's account**. Account
+The operator confirmed a manual application image in **both** ordinary WeChat
+and WeCom on 2026-10-19. This verifies that account's plugin delivery, not a
+different recipient's membership or phone settings. Account
 registration/verification, application permissions, trusted IP requirements and
 member activation must be established with truthful information before adopting
 it. The recipient must be an application member and follow the WeChat plugin;
@@ -280,14 +299,25 @@ identity verification or domain ownership requirement.
 
 `scripts/wecom-image-probe.mjs DEMO.png --send-once` is a minimal manual probe.
 It expects exported private `WECOM_CORP_ID`, `WECOM_APP_SECRET`,
-`WECOM_AGENT_ID`, `WECOM_USER_ID` variables and `PUSH_ENABLED=false`. No credentials
-have been created for this route and it is not wired into the worker. It verifies
+`WECOM_AGENT_ID`, `WECOM_USER_ID` variables and `PUSH_ENABLED=false`. It verifies
 an enabled application and active member, uploads a demo, and submits exactly
 one image to one member, without a fallback or automatic retry. Invalid or
 unlicensed recipient results fail explicitly even if `errcode` is zero.
 Acceptance is not receipt: verify the picture in **ordinary WeChat**, not only in
 the WeCom client, before changing the daily sender. Mock-only tests run with
 `node --test tests/wecom-probe.test.mjs`; they do not establish real eligibility.
+
+The production worker reads these four credentials from the host's private
+`~/.config/our-days-wecom.env` via `env_file`; the web container never receives
+the application Secret. Set `PUSH_CHANNEL=wecom`, `PUSH_ENABLED=true` and
+`WECOM_CONFIGURED=true` only after verifying the account. These are operator
+readiness gates, **not** the user's enable switch: leave `settings.paused=true`
+until the administrator explicitly enables the daily task in Settings.
+Worker font mounts (`/usr/share/fonts`, `/etc/fonts`) provide Chinese typography.
+Photo cards are generated from approved snapshots as JPEGs, preserving the full
+reviewed caption or reporting an error if it cannot fit legibly. Draft facts and
+GPS coordinates are not printed on cards. Provider acceptance is recorded as
+accepted, never fabricated as delivered or read.
 
 ## PushPlus alternative
 
@@ -305,10 +335,11 @@ does not redirect an already-created delivery to a different provider.
 
 ## Scheduling and failures
 
-- `settings.paused` starts true; `PUSH_ENABLED` starts false; per-edition
-  notifications start false. All three conditions must allow sending.
-- A changed timezone/time affects newly saved schedules, not existing UTC
-  instants. Re-save future editions to move them.
+- `settings.paused` starts true; `PUSH_ENABLED` starts false. In WeCom daily mode
+  readiness gates plus the Settings enable switch control automatic image sends.
+  Explicit legacy editions retain their per-edition notification flag.
+- A changed timezone/time affects the next auto-selected daily edition, not an
+  already-generated date or an existing explicit manual schedule.
 - Only today's due editions publish. Missed older schedules remain visible
   and are flagged by the monitoring query.
 - Approval is checked again at publication. Published captions and date/place

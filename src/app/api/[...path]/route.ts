@@ -11,6 +11,7 @@ import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../..
 import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
 import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../../lib/ai-config";
 import { lookupPhotoPlace } from "../../../lib/photo-place";
+import { READY_PHOTO_SQL } from "../../../lib/photo-queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,22 +92,25 @@ export async function GET(request: NextRequest, context: Context) {
       return json(await query("SELECT id,status,added,duplicates,errors FROM imports WHERE id=ANY($1::uuid[])", [ids]));
     }
     if (route === "admin") {
-      const [photos, editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime] = await Promise.all([
+      const [photos, editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime, nextPhotos] = await Promise.all([
         query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used
                FROM photos p ORDER BY created_at DESC LIMIT 1000`),
         query("SELECT id,day::text,photo_id,title,send_at,notify,status,snapshot FROM editions ORDER BY day DESC LIMIT 366"),
         query("SELECT id,status,added,duplicates,errors,created_at FROM imports ORDER BY created_at DESC LIMIT 20"),
-        query("SELECT d.*,e.day::text FROM deliveries d JOIN editions e ON e.id=d.edition_id ORDER BY e.day DESC LIMIT 50"),
+        query("SELECT d.*,e.day::text FROM deliveries d JOIN editions e ON e.id=d.edition_id ORDER BY e.day DESC LIMIT 366"),
         query<Settings>("SELECT * FROM settings WHERE id=true"),
         query("SELECT * FROM worker_state"), storageBytes(),
         query("SELECT coalesce(sum(cost_usd),0)::text AS total FROM ai_events WHERE created_at>=date_trunc('month',now())"),
         aiSettings(), runtimeAI(),
+        query(`${READY_PHOTO_SQL}`),
       ]);
       return json({ photos, editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
         quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total,
         pushEnabled: process.env.PUSH_ENABLED === "true",
         pushChannel: process.env.PUSH_CHANNEL ?? "wechat-test",
-        pushReady: (process.env.PUSH_CHANNEL ?? "wechat-test") === "wechat-test" ? wechatReady() :
+        nextPhotoId: nextPhotos[0]?.id ?? null,
+        pushReady: process.env.PUSH_CHANNEL === "wecom" ? process.env.WECOM_CONFIGURED === "true" :
+          (process.env.PUSH_CHANNEL ?? "wechat-test") === "wechat-test" ? wechatReady() :
           !!(process.env.PUSHPLUS_TOKEN && process.env.PUSHPLUS_TO && process.env.PUSHPLUS_SECRET_KEY),
         aiEnabled: aiRuntime.enabled, ai });
     }
@@ -220,7 +224,13 @@ export async function POST(request: NextRequest, context: Context) {
     }
     if (route === "settings") {
       const s = settingsInput.parse(body);
-      await query(`UPDATE settings SET timezone=$1,send_time=$2,paused=$3,weather_lat=$4,weather_lon=$5,weather_city=$6,almanac=$7,star_note=$8 WHERE id=true`,
+      if (!s.paused && (process.env.PUSH_ENABLED !== "true" || process.env.PUSH_CHANNEL !== "wecom" || process.env.WECOM_CONFIGURED !== "true")) {
+        throw new AppError(409, "delivery_not_ready", "自动发图通道尚未就绪，暂时不能开启");
+      }
+      await query(`UPDATE settings SET enabled_at=CASE
+          WHEN NOT $3 AND (paused OR timezone<>$1 OR send_time<>$2) THEN now() ELSE enabled_at END,
+        timezone=$1,send_time=$2,
+        paused=$3,weather_lat=$4,weather_lon=$5,weather_city=$6,almanac=$7,star_note=$8 WHERE id=true`,
         [s.timezone, s.send_time, s.paused, s.weather_lat, s.weather_lon, s.weather_city, s.almanac, s.star_note]);
       return json({ ok: true });
     }

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS settings (
   star_note text NOT NULL DEFAULT ''
 );
 INSERT INTO settings(id) VALUES (true) ON CONFLICT DO NOTHING;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS enabled_at timestamptz;
 CREATE TABLE IF NOT EXISTS editions (
   id uuid PRIMARY KEY,
   day date NOT NULL UNIQUE,
@@ -66,7 +67,7 @@ CREATE TABLE IF NOT EXISTS editions (
 CREATE TABLE IF NOT EXISTS deliveries (
   id uuid PRIMARY KEY,
   edition_id uuid NOT NULL UNIQUE REFERENCES editions(id),
-  channel text NOT NULL CHECK (channel IN ('wechat-test','pushplus')),
+  channel text NOT NULL CHECK (channel IN ('wechat-test','pushplus','wecom')),
   status text NOT NULL CHECK (status IN ('pending','sending','accepted','delivered','failed','unknown','disabled')),
   record_id text,
   error_code text,
@@ -76,6 +77,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
 CREATE TABLE IF NOT EXISTS favorites (
   edition_id uuid PRIMARY KEY REFERENCES editions(id)
 );
+ALTER TABLE deliveries DROP CONSTRAINT IF EXISTS deliveries_channel_check;
+ALTER TABLE deliveries ADD CONSTRAINT deliveries_channel_check CHECK (channel IN ('wechat-test','pushplus','wecom'));
 CREATE TABLE IF NOT EXISTS wechat_receipts (
   record_id text PRIMARY KEY,
   status text NOT NULL CHECK (status IN ('delivered','failed')),
@@ -117,9 +120,8 @@ SELECT
     AND created_at<now()-interval '10 minutes') AS stuck_imports,
   (SELECT count(*)::int FROM editions,settings WHERE status='scheduled' AND NOT paused
     AND send_at<now()-interval '15 minutes') AS missed_editions,
-  (SELECT count(*)::int FROM editions,settings WHERE status='scheduled'
-    AND day BETWEEN (now() AT TIME ZONE timezone)::date+1
-    AND (now() AT TIME ZONE timezone)::date+7) AS next_week_count,
+  (SELECT count(*)::int FROM photos p WHERE approved AND NOT EXISTS
+    (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')) AS next_week_count,
   (SELECT count(*)::int FROM deliveries d JOIN editions e ON e.id=d.edition_id
     WHERE d.status IN ('failed','unknown','pending','sending')
     OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention;
