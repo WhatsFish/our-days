@@ -25,27 +25,37 @@ export function wrapCardText(text: string, width = 26) {
 export async function renderPhotoCard(snapshot: Snapshot, day: string, input?: Buffer) {
   process.env.XDG_CACHE_HOME ??= "/tmp/our-days-fontcache";
   await mkdir(process.env.XDG_CACHE_HOME, { recursive: true, mode: 0o700 });
-  const photo = await sharp(input ?? await readFile(mediaPath(snapshot.photo_id, "display.webp")))
-    .resize(952, 680, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
-  const caption = wrapCardText(snapshot.caption);
+  const { data: photo, info: dimensions } = await sharp(input ?? await readFile(mediaPath(snapshot.photo_id, "display.webp")))
+    .rotate().resize(968, 1900, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true });
+  const photoX = Math.round((1080 - dimensions.width) / 2);
+  const photoY = 132;
+  const caption = wrapCardText(snapshot.caption, 24);
   const details = wrapCardText([snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · "), 36);
-  const extras = [snapshot.weather === "未配置天气城市" ? "" : snapshot.weather, snapshot.almanac, snapshot.star_note].filter(Boolean).flatMap(text => wrapCardText(text, 38));
-  let y = 950;
+  const extras = [snapshot.weather === "未配置天气城市" ? "" : snapshot.weather, snapshot.star_note]
+    .filter(Boolean).flatMap(text => wrapCardText(text, 36));
+  let y = photoY + dimensions.height + 44;
   const text: string[] = [];
   function add(lines: string[], size: number, lineHeight: number, color: string) {
-    for (const line of lines) { text.push(`<text x="64" y="${y}" font-size="${size}" fill="${color}">${xmlEscape(line)}</text>`); y += lineHeight; }
+    for (const line of lines) { text.push(`<text x="56" y="${y}" font-size="${size}" fill="${color}">${xmlEscape(line)}</text>`); y += lineHeight; }
   }
-  add(details, 25, 38, "#6f786a"); y += 25;
-  add(caption, 34, 58, "#354236"); y += 35;
-  add(extras, 24, 40, "#6f786a"); y += 40;
+  if (details.length && details.some(Boolean)) { add(details, 26, 40, "#6f786a"); y += 16; }
+  add(caption, 38, 60, "#354236");
+  if (extras.length) {
+    y += 14;
+    text.push(`<path d="M56 ${y - 24}H1024" stroke="#dce0d4"/>`);
+    add(extras, 26, 40, "#6f786a");
+  }
+  y += 32;
   // Long reviewed captions stay complete; reject rather than silently truncate or send unreadable cards.
   if (y > 6200) throw new AppError(400, "card_too_long", "文案过长，无法生成清晰的微信图片，请缩短后重试");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="${Math.max(y, 1220)}">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="${y}">
     <rect width="100%" height="100%" fill="#f7f3eb"/>
     <g font-family="Noto Sans CJK SC,sans-serif">
-      <text x="64" y="82" font-size="26" fill="#6f786a">拾光 · ${xmlEscape(day)}</text>
-      <text x="64" y="153" font-size="40" fill="#354236">今天，想与你重温一个瞬间。</text>
-      <image x="64" y="210" width="952" height="680" preserveAspectRatio="xMidYMid meet" href="data:image/jpeg;base64,${photo.toString("base64")}"/>
+      <text x="56" y="76" font-size="30" fill="#354236">拾光</text>
+      <text x="1024" y="76" font-size="24" fill="#6f786a" text-anchor="end">${xmlEscape(day)}</text>
+      <path d="M56 102H1024" stroke="#dce0d4"/>
+      <image x="${photoX}" y="${photoY}" width="${dimensions.width}" height="${dimensions.height}" href="data:image/jpeg;base64,${photo.toString("base64")}"/>
       ${text.join("")}
     </g></svg>`;
   const image = await sharp(Buffer.from(svg)).jpeg({ quality: 85 }).toBuffer();

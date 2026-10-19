@@ -12,13 +12,15 @@ import { sendWecomImage, WecomSendError } from "../src/lib/wecom-image.mjs";
 const send = process.argv.includes("--send-two");
 if (process.argv.includes("--check") && send) throw new Error("Choose --check or --send-two");
 const stateFile = process.env.E2E_STATE_FILE;
+const label = process.env.E2E_LABEL ?? "E2E";
+if (!/^[\p{L}\p{N} ._-]{1,24}$/u.test(label)) throw new Error("Invalid E2E display label");
 if (send && (!stateFile || !path.isAbsolute(stateFile))) throw new Error("Provide a new private E2E_STATE_FILE; existing runs cannot be repeated");
 if (process.env.PUSH_CHANNEL !== "wecom") throw new Error("Expected the configured WeCom channel");
 const client = await pool.connect();
 let locked = false;
 type Item = { photo_id: string; number: number; sha256: string; width: number; height: number; bytes: number; status: string; record_id?: string; error_code?: string; submitted_at?: string };
-const state: { type: string; created_at: string; changes_daily_queue: boolean; items: Item[] } = {
-  type: "manual_material_e2e", created_at: new Date().toISOString(), changes_daily_queue: false, items: [],
+const state: { type: string; label: string; created_at: string; changes_daily_queue: boolean; items: Item[] } = {
+  type: "manual_material_e2e", label, created_at: new Date().toISOString(), changes_daily_queue: false, items: [],
 };
 async function save() { if (send) await writeFile(stateFile!, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 }); }
 try {
@@ -31,7 +33,7 @@ try {
   for (const [index, photo] of photos.entries()) {
     if (!photo.caption.trim()) throw new Error("Missing approved caption; no messages submitted");
     const snapshot = await buildSnapshot(photo, settings, localDay(new Date(), settings.timezone));
-    const image = await renderPhotoCard(snapshot, `${localDay(new Date(), settings.timezone)} · E2E ${index + 1}/2`);
+    const image = await renderPhotoCard(snapshot, `${localDay(new Date(), settings.timezone)} · ${label} ${index + 1}/2`);
     const meta = await sharp(image).metadata();
     if (meta.format !== "jpeg" || meta.width !== 1080 || !meta.height || meta.exif || image.length > 2 * 1024 * 1024) {
       throw new Error("Rendered card failed validation; no messages submitted");

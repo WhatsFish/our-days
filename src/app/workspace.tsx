@@ -141,7 +141,7 @@ export function Workspace() {
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
       </>}
     </>}
-    {role === "reader" && <footer>传统宜忌与星座小笺仅作民俗、娱乐参考，不构成决策建议。</footer>}
+    {role === "reader" && <footer>每日小笺仅作娱乐参考，不构成决策建议。</footer>}
   </main>;
 }
 
@@ -273,8 +273,8 @@ function Letter({ snapshot, title }: { snapshot: Snapshot; title: string }) {
     <img className="letter-photo" src={`${base}/api/media/${snapshot.photo_id}/display`} alt="这一封来信里的照片" />
     <p className="dateline">{[snapshot.date_label, snapshot.place_label].filter(Boolean).join(" · ") || "有些瞬间，不必记得确切的日期。"}</p>
     <p className="caption">{snapshot.caption || "文案还在准备中。"}</p>
-    {(snapshot.weather || snapshot.almanac || snapshot.star_note) && <aside><h3>也记得照顾今天的自己</h3>
-      {snapshot.weather && <p>{snapshot.weather}</p>}{snapshot.almanac && <p>{snapshot.almanac}</p>}
+    {(snapshot.weather || snapshot.star_note) && <aside><h3>生活信息</h3>
+      {snapshot.weather && <p>{snapshot.weather}</p>}
       {snapshot.star_note && <p>今日小笺：{snapshot.star_note}</p>}</aside>}
   </article>;
 }
@@ -312,7 +312,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
         try { await api("settings", {
         timezone: value(form, "timezone"), send_time: value(form, "send_time"), paused: !form.has("enabled"),
         weather_lat: coordinate("weather_lat"), weather_lon: coordinate("weather_lon"), weather_city: value(form, "weather_city"),
-        almanac: form.has("almanac"), star_note: value(form, "star_note"),
+        almanac: false, star_note: value(form, "star_note"),
         }); setFeedback("设置已保存"); }
         catch (error) { setFeedback(error instanceof Error ? error.message : "保存失败"); throw error; }
       });
@@ -326,7 +326,6 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       <div className="form-grid"><label>城市纬度<input name="weather_lat" type="number" step="any" min="-90" max="90" defaultValue={s.weather_lat ?? ""} /></label>
         <label>城市经度<input name="weather_lon" type="number" step="any" min="-180" max="180" defaultValue={s.weather_lon ?? ""} /></label></div>
       <p className="muted wide">填写的是城市位置，不是她的实时位置。配置后会向 Open-Meteo 请求该城市天气；清空经纬度即可关闭。</p>
-      <label className="check wide"><input type="checkbox" name="almanac" defaultChecked={s.almanac} />展示农历与传统宜忌</label>
       <label className="wide">每日小笺（可留空；首版由你编辑，不伪造运势）<textarea name="star_note" maxLength={300} defaultValue={s.star_note} /></label>
       </details>
       <button disabled={busy}>保存设置</button>

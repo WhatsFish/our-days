@@ -23,7 +23,7 @@ with optional WeChat notification. No personal content is included in this repos
   primary channel. Legacy test-account templates and PushPlus are retained
   for compatibility, not presented as interchangeable daily-image solutions.
   Daily sending starts paused until an administrator explicitly enables it.
-- Optional Open-Meteo city weather and locally calculated lunar calendar.
+- Optional Open-Meteo city weather. Almanac output is currently hidden/disabled.
   The daily encouragement is editorial text, not an invented horoscope.
 
 ## Deliberate limits
@@ -327,6 +327,13 @@ Photo cards are generated from approved snapshots as JPEGs, preserving the full
 reviewed caption or reporting an error if it cannot fit legibly. Draft facts and
 GPS coordinates are not printed on cards. Provider acceptance is recorded as
 accepted, never fabricated as delivered or read.
+
+The photograph keeps its aspect ratio and is not cropped into a landscape box:
+portrait input is fitted within 968x1900 pixels and the canvas grows with the
+resulting image height. The compact header and metadata/caption blocks follow
+the photograph without a fixed blank band. Landscape cards are correspondingly
+shorter. Almanac content is omitted even when a legacy snapshot contains it;
+the administrator switch is hidden and the live setting is disabled.
 
 For a specifically approved real-material E2E check,
 `scripts/e2e-wecom.ts --check` renders the first two approved unused photos using

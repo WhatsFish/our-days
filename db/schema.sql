@@ -46,11 +46,12 @@ CREATE TABLE IF NOT EXISTS settings (
   weather_lat double precision,
   weather_lon double precision,
   weather_city text NOT NULL DEFAULT '',
-  almanac boolean NOT NULL DEFAULT true,
+  almanac boolean NOT NULL DEFAULT false,
   star_note text NOT NULL DEFAULT ''
 );
 INSERT INTO settings(id) VALUES (true) ON CONFLICT DO NOTHING;
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS enabled_at timestamptz;
+ALTER TABLE settings ALTER COLUMN almanac SET DEFAULT false;
 CREATE TABLE IF NOT EXISTS editions (
   id uuid PRIMARY KEY,
   day date NOT NULL UNIQUE,
