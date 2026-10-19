@@ -8,6 +8,7 @@ import { AppError, editionInput, photoEdit, publicError, settingsInput, uuid, ty
 import { enqueueUpload, mediaPath, storageBytes, uploadLimit } from "../../../lib/media";
 import { suggestCaption } from "../../../lib/ai";
 import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../../lib/wechat";
+import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,10 @@ export async function GET(request: NextRequest, context: Context) {
   try {
     const params = await context.params;
     const route = params.path.join("/");
+    if (route === "wecom/callback") {
+      const echo = decryptWecomCallback(request.nextUrl, request.nextUrl.searchParams.get("echostr") ?? "");
+      return new NextResponse(new Uint8Array(echo), { headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } });
+    }
     if (route === "wechat/callback") {
       verifyWechatSignature(request.nextUrl);
       const echo = request.nextUrl.searchParams.get("echostr");
@@ -106,6 +111,12 @@ export async function POST(request: NextRequest, context: Context) {
   try {
     const params = await context.params;
     const route = params.path.join("/");
+    if (route === "wecom/callback") {
+      const encrypted = wecomEncryptedBody((await boundedBody(request, 64 * 1024)).toString("utf8"));
+      decryptWecomCallback(request.nextUrl, encrypted);
+      // This endpoint only verifies and acknowledges; no message content is logged or acted upon.
+      return new NextResponse("", { headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } });
+    }
     if (route === "wechat/callback") {
       verifyWechatSignature(request.nextUrl);
       const receipt = parseWechatReceipt((await boundedBody(request, 32 * 1024)).toString("utf8"));

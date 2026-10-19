@@ -245,6 +245,25 @@ being a personal WeChat friend or external customer is not sufficient. Do not
 use an employer's workspace, fabricate an organization or assume unverified
 personal registrations will be accepted.
 
+If setting a trusted IP requires a trusted domain **or a receiving server URL**,
+use the application's receiving server configuration:
+`https://YOUR_HOST/our-days/api/wecom/callback`. This endpoint implements the
+signed AES-256-CBC URL handshake and validates receiver CorpID, padding and
+timestamp. POST messages are authenticated, decrypted and acknowledged without
+logging, storing or responding to their content; this does not enable chat.
+
+Run `node scripts/prepare-wecom-callback.mjs` on the host to generate missing
+callback keys in `~/.config/our-days-wecom.env`. Existing values are preserved.
+Fill `WECOM_CORP_ID` and run the preparation script again. It copies only CorpID
+and the two callback keys to a UID-10001, mode-600 runtime file at
+`/data/our-days-callback.env`; the application Secret is never copied to the web.
+After each sync, recreate the web container so its file bind mount sees the new
+inode: `docker compose up -d --no-build --force-recreate web`. Configure the
+matching `WECOM_CALLBACK_TOKEN` and `WECOM_CALLBACK_AES_KEY` as Token and
+EncodingAESKey in the WeCom administration UI, then save that callback before
+retrying trusted IP configuration. This is not a workaround for a separate
+identity verification or domain ownership requirement.
+
 `scripts/wecom-image-probe.mjs DEMO.png --send-once` is a minimal manual probe.
 It expects exported private `WECOM_CORP_ID`, `WECOM_APP_SECRET`,
 `WECOM_AGENT_ID`, `WECOM_USER_ID` variables and `PUSH_ENABLED=false`. No credentials

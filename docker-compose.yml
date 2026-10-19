@@ -15,6 +15,12 @@ services:
       - "127.0.0.1:3016:3000"
     volumes:
       - type: bind
+        source: /data/our-days-callback.env
+        target: /run/secrets/our-days-wecom.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
         source: ${OUR_DAYS_DATA_DIR:?Set OUR_DAYS_DATA_DIR to a verified persistent directory}
         target: /media
         bind:
