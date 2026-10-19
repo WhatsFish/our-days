@@ -5,7 +5,7 @@ import { query, transaction } from "./db";
 import { AppError } from "./domain";
 import { runtimeAI, type AIConfiguration } from "./ai-config";
 
-async function logCentral(provider: string, model: string, input: number | null, output: number | null, cost: number, duration: number, task: string) {
+async function logCentral(provider: string, model: string, input: number | null, output: number | null, cost: number | null, duration: number, task: string) {
   if (!process.env.COST_PG_USER) {
     console.warn("[our-days] cost_sink_unconfigured; retained in ai_events");
     return;
@@ -43,20 +43,27 @@ export async function probeAIText() {
 async function requestAIText(config: AIConfiguration, facts: string, style: string, task: "caption" | "connection_test") {
   const { url, apiKey: key, model, inputRate, outputRate, monthlyLimit: limit, provider } = config;
   if (!url || new URL(url).protocol !== "https:" || !key || !model ||
-      !Number.isFinite(inputRate) || !Number.isFinite(outputRate) || inputRate < 0 || outputRate < 0 ||
-      !Number.isFinite(limit) || limit <= 0) throw new AppError(503, "ai_config", "请配置 AI 接口、单价与预算");
+      (inputRate !== null && (!Number.isFinite(inputRate) || inputRate < 0)) ||
+      (outputRate !== null && (!Number.isFinite(outputRate) || outputRate < 0)) ||
+      (limit !== null && (!Number.isFinite(limit) || limit <= 0)) ||
+      (limit !== null && (inputRate === null || outputRate === null))) {
+    throw new AppError(503, "ai_config", "AI 接口配置无效；启用限额时必须填写有效单价");
+  }
   const event = randomUUID();
-  const reserve = ((task === "connection_test" ? 128 : 8000) * inputRate + (task === "connection_test" ? 32 : 800) * outputRate) / 1_000_000;
+  const reserve = inputRate === null || outputRate === null ? null :
+    ((task === "connection_test" ? 128 : 8000) * inputRate + (task === "connection_test" ? 32 : 800) * outputRate) / 1_000_000;
   await transaction(async client => {
     await client.query("SELECT pg_advisory_xact_lock(7316,3)");
-    const sum = await client.query<{ total: string }>("SELECT COALESCE(sum(cost_usd),0)::text AS total FROM ai_events WHERE created_at>=date_trunc('month',now())");
+    const sum = await client.query<{ total: string; unknown_cost: number }>(
+      "SELECT COALESCE(sum(cost_usd),0)::text AS total,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unknown_cost FROM ai_events WHERE created_at>=date_trunc('month',now())");
     const recent = await client.query("SELECT id FROM ai_events WHERE created_at>now()-interval '30 seconds'");
     if (recent.rowCount) throw new AppError(429, "ai_rate", "请等待 30 秒再生成");
-    if (Number(sum.rows[0].total) + reserve > limit) throw new AppError(429, "ai_budget", "本月 AI 预算不足");
+    if (limit !== null && sum.rows[0].unknown_cost > 0) throw new AppError(409, "ai_budget_unknown", "本月存在费用未知的调用，无法可靠执行月度限额；请关闭限额或先核对账单");
+    if (limit !== null && Number(sum.rows[0].total) + (reserve ?? 0) > limit) throw new AppError(429, "ai_budget", "本月 AI 预算不足");
     await client.query("INSERT INTO ai_events(id,provider,model,cost_usd,status,task) VALUES($1,$2,$3,$4,'reserved',$5)",
       [event, provider, model, reserve, task]);
   });
-  let input: number | null = null, output: number | null = null, cost = reserve;
+  let input: number | null = null, output: number | null = null, cost: number | null = reserve;
   const started = Date.now();
   try {
     const response = await fetch(url, {
@@ -78,7 +85,7 @@ async function requestAIText(config: AIConfiguration, facts: string, style: stri
     }).parse(await response.json());
     if (body.usage) {
       input = body.usage.prompt_tokens; output = body.usage.completion_tokens;
-      cost = (input * inputRate + output * outputRate) / 1_000_000;
+      cost = inputRate === null || outputRate === null ? null : (input * inputRate + output * outputRate) / 1_000_000;
     }
     await query("UPDATE ai_events SET input_tokens=$2,output_tokens=$3,cost_usd=$4,status=$5 WHERE id=$1",
       [event, input, output, cost, input === null ? "estimated" : "complete"]);

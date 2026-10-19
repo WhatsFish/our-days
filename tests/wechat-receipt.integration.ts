@@ -142,6 +142,19 @@ try {
     assert.equal(lastAI.provider, "zhipu");
     assert.equal(lastAI.task, "connection_test");
     assert.ok(Number(lastAI.cost_usd) > 0);
+    const noCap = { ...settings, provider: "zhipu", model: "glm-5.3", apiKey: "", enabled: true, monthlyLimit: null, inputRate: null, outputRate: null };
+    assert.equal((await adminPost("ai/config", noCap)).status, 200);
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds',cost_usd=999999");
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 200, "Uncapped calls must not be blocked by prior monthly spend");
+    const unpriced = (await pool.query("SELECT input_tokens,output_tokens,cost_usd,status FROM ai_events ORDER BY created_at DESC LIMIT 1")).rows[0];
+    assert.equal(unpriced.input_tokens, 10);
+    assert.equal(unpriced.output_tokens, 1);
+    assert.equal(unpriced.cost_usd, null);
+    assert.equal(unpriced.status, "complete");
+    assert.equal((await adminPost("ai/config", { ...noCap, monthlyLimit: 5 })).status, 400, "A cap needs known prices");
+    await pool.query("UPDATE ai_events SET created_at=now()-interval '31 seconds'");
+    assert.equal((await adminPost("ai/config", { ...noCap, monthlyLimit: 5, inputRate: 1, outputRate: 2 })).status, 200);
+    assert.equal((await adminPost("ai/test", { confirm: true })).status, 409, "Unknown historic costs must not be counted as zero under a new cap");
   } finally { globalThis.fetch = originalFetch; }
   assert.equal((await adminPost("ai/config", { ...settings, enabled: false, apiKey: "", clearKey: true })).status, 200);
   const dashboard = await GET(new NextRequest("https://example.com/our-days/api/admin", { headers: { Cookie: `our_days_session=${token}` } }),
@@ -150,6 +163,7 @@ try {
   const publicDashboard = await dashboard.text();
   assert.equal(publicDashboard.includes("synthetic-secret"), false);
   assert.equal(JSON.parse(publicDashboard).ai.keyConfigured, false);
+  assert.equal(JSON.parse(publicDashboard).aiUnknownCost, 1);
   const status = JSON.parse(publicDashboard);
   assert.equal(typeof status.stats.photos, "number");
   assert.equal(typeof status.stats.submitted, "number");

@@ -9,9 +9,9 @@ const fields = z.object({
   enabled: z.boolean(),
   provider: z.enum(["deepseek", "openai", "zhipu"]),
   model: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9._:/-]+$/),
-  inputRate: z.number().finite().min(0).max(10000),
-  outputRate: z.number().finite().min(0).max(10000),
-  monthlyLimit: z.number().finite().positive().max(1000),
+  inputRate: z.number().finite().min(0).max(10000).nullable(),
+  outputRate: z.number().finite().min(0).max(10000).nullable(),
+  monthlyLimit: z.number().finite().positive().max(1000).nullable(),
 });
 const key = z.string().trim().min(8).max(512).regex(/^[a-zA-Z0-9_.-]+$/);
 const storedSchema = fields.extend({ apiKey: key.or(z.literal("")) });
@@ -20,11 +20,11 @@ export type StoredAI = z.infer<typeof storedSchema>;
 export type PublicAI = Omit<StoredAI, "apiKey"> & { keyConfigured: boolean; source: "dashboard" };
 export type AIConfiguration = {
   enabled: boolean; provider: string; model: string; apiKey: string; url: string;
-  inputRate: number; outputRate: number; monthlyLimit: number;
+  inputRate: number | null; outputRate: number | null; monthlyLimit: number | null;
 };
 const defaults: StoredAI = {
   enabled: false, provider: "deepseek", model: "deepseek-flash", apiKey: "",
-  inputRate: 0, outputRate: 0, monthlyLimit: 5,
+  inputRate: null, outputRate: null, monthlyLimit: null,
 };
 function configPath() {
   const dir = process.env.PRIVATE_CONFIG_DIR;
@@ -57,8 +57,11 @@ export async function saveAISettings(input: unknown): Promise<PublicAI> {
     }
     const { clearKey, apiKey, ...rest } = data;
     const next = { ...rest, apiKey: clearKey ? "" : apiKey || previous?.apiKey || "" };
-    if (next.enabled && (!next.apiKey || next.inputRate + next.outputRate <= 0)) {
-      throw new AppError(400, "ai_config", "启用 AI 前请填写 API Key 和有效单价，便于预算控制");
+    if (next.enabled && !next.apiKey) {
+      throw new AppError(400, "ai_config", "启用 AI 前请填写 API Key");
+    }
+    if (next.monthlyLimit !== null && (next.inputRate === null || next.outputRate === null)) {
+      throw new AppError(400, "ai_config", "启用费用限额时需要填写输入、输出单价；或关闭限额，只记录 token 用量");
     }
     const file = configPath();
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -86,9 +89,9 @@ export async function runtimeAI(): Promise<AIConfiguration> {
   return {
     enabled: process.env.AI_ENABLED === "true", provider: process.env.AI_PROVIDER ?? "foundry",
     apiKey: process.env.AI_API_KEY ?? "", url: process.env.AI_URL ?? "", model: process.env.AI_MODEL ?? "",
-    inputRate: Number(process.env.AI_INPUT_USD_PER_MILLION || NaN),
-    outputRate: Number(process.env.AI_OUTPUT_USD_PER_MILLION || NaN),
-    monthlyLimit: Number(process.env.AI_MONTHLY_USD_LIMIT ?? 5),
+    inputRate: process.env.AI_INPUT_USD_PER_MILLION ? Number(process.env.AI_INPUT_USD_PER_MILLION) : null,
+    outputRate: process.env.AI_OUTPUT_USD_PER_MILLION ? Number(process.env.AI_OUTPUT_USD_PER_MILLION) : null,
+    monthlyLimit: process.env.AI_MONTHLY_USD_LIMIT === "none" ? null : Number(process.env.AI_MONTHLY_USD_LIMIT ?? 5),
   };
 }
 export async function testAIConnection(fetcher: typeof fetch = fetch) {
@@ -97,7 +100,7 @@ export async function testAIConnection(fetcher: typeof fetch = fetch) {
   if (config.provider === "zhipu") {
     const { probeAIText } = await import("./ai");
     await probeAIText();
-    return { ok: true, message: "智谱模型调用成功（仅固定测试文本，消耗已计入本月预算；没有发送照片或回忆说明）" };
+    return { ok: true, message: "智谱模型调用成功（仅固定测试文本，token 用量已记录；没有发送照片或回忆说明）" };
   }
   const url = config.provider === "deepseek" ? "https://api.deepseek.com/models" : "https://api.openai.com/v1/models";
   let response: Response;

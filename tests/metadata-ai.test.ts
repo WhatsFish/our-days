@@ -28,6 +28,7 @@ test("AI public configuration never exposes API key; unsafe inputs fail validati
   assert.equal(aiConfigInput.safeParse({ ...config, provider: "custom", url: "http://127.0.0.1" }).success, false);
   assert.equal(aiConfigInput.safeParse({ ...config, apiKey: "key\nInjected: secret" }).success, false);
   assert.equal(aiConfigInput.safeParse({ ...config, monthlyLimit: -1 }).success, false);
+  assert.equal(aiConfigInput.safeParse({ ...config, monthlyLimit: null, inputRate: null, outputRate: null }).success, true);
 });
 test("saved AI config is loaded per call and connection test sends no photo facts", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "our-days-ai-unit-"));
@@ -51,6 +52,9 @@ test("saved AI config is loaded per call and connection test sends no photo fact
     await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, provider: "zhipu", model: "glm-5.3" }));
     assert.equal((await runtimeAI()).url, "https://open.bigmodel.cn/api/paas/v4/chat/completions");
     assert.equal(aiConfigInput.safeParse({ ...config, provider: "zhipu", model: "glm-5.3" }).success, true);
+    await writeFile(path.join(dir, "ai.json"), JSON.stringify({ ...config, monthlyLimit: null, inputRate: null, outputRate: null }));
+    assert.equal((await runtimeAI()).monthlyLimit, null);
+    assert.equal((await runtimeAI()).inputRate, null);
   } finally {
     if (previous === undefined) delete process.env.PRIVATE_CONFIG_DIR; else process.env.PRIVATE_CONFIG_DIR = previous;
     await unlink(path.join(dir, "ai.json")); await rmdir(dir);

@@ -101,7 +101,7 @@ export async function GET(request: NextRequest, context: Context) {
         query("SELECT d.*,e.day::text FROM deliveries d JOIN editions e ON e.id=d.edition_id ORDER BY e.day DESC LIMIT 366"),
         query<Settings>("SELECT * FROM settings WHERE id=true"),
         query<{ last_tick: Date | null; error_code: string | null }>("SELECT * FROM worker_state"), storageBytes(),
-        query("SELECT coalesce(sum(cost_usd),0)::text AS total FROM ai_events WHERE created_at>=date_trunc('month',now())"),
+        query("SELECT coalesce(sum(cost_usd),0)::text AS total,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unknown_cost FROM ai_events WHERE created_at>=date_trunc('month',now())"),
         aiSettings(), runtimeAI(),
         query(`${READY_PHOTO_SQL}`),
         query<OperatorCounts>(OPERATOR_COUNTS_SQL), resourceStatus(),
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest, context: Context) {
           ORDER BY p.created_at,p.id LIMIT 100`),
       ]);
       return json({ photos, editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
-        quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total,
+        quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total, aiUnknownCost: costs[0].unknown_cost,
         pushEnabled: process.env.PUSH_ENABLED === "true",
         pushChannel: process.env.PUSH_CHANNEL ?? "wechat-test",
         nextPhotoId: nextPhotos[0]?.id ?? null,

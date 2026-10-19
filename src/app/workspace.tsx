@@ -15,6 +15,7 @@ type Dashboard = {
   settings: Settings; worker: { last_tick: string | null; error_code: string | null } | null;
   bytes: number; quotaMb: number; pushEnabled: boolean; pushReady: boolean; pushChannel: string; aiEnabled: boolean; aiCost: string;
   ai: PublicAI;
+  aiUnknownCost: number;
   nextPhotoId: string | null;
   stats: OperatorCounts;
   resources: Resources;
@@ -157,7 +158,7 @@ function ResourcePanel({ dashboard: d }: { dashboard: Dashboard }) {
       <tr><th>主机物理内存 / 空闲</th><td>{memory(r.hostMemoryTotal)} / {memory(r.hostMemoryFree)}（空闲值不含可回收缓存）</td></tr>
       <tr><th>照片文件 / 配额</th><td>{memory(d.bytes)} / {d.quotaMb} MiB</td></tr>
       <tr><th>照片所在磁盘可用 / 总量</th><td>{(r.diskFree / 1024 ** 3).toFixed(2)} / {(r.diskTotal / 1024 ** 3).toFixed(2)} GiB（共享文件系统，不是独占空间）</td></tr>
-      <tr><th>AI 本月支出估算 / 预留</th><td>USD {Number(d.aiCost).toFixed(4)}</td></tr>
+      <tr><th>AI 本月已知费用估算 / 预留</th><td>USD {Number(d.aiCost).toFixed(4)}{d.aiUnknownCost > 0 ? `；另有 ${d.aiUnknownCost} 次费用未知，仅记录 token 用量` : ""}</td></tr>
     </tbody></table>
     <p className="muted">内存上限与照片配额是部署参数，不在网页里调整。磁盘容量与照片配额是两个独立限制。</p>
   </section>;
@@ -365,7 +366,9 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
   const [model, setModel] = useState(config.model);
   const [apiKey, setApiKey] = useState("");
   const [connection, setConnection] = useState("");
+  const [limitEnabled, setLimitEnabled] = useState(config.monthlyLimit !== null);
   useEffect(() => { setProvider(config.provider); setModel(config.model); }, [config.provider, config.model]);
+  useEffect(() => { setLimitEnabled(config.monthlyLimit !== null); }, [config.monthlyLimit]);
   return <section>
     <h2>AI 服务配置</h2>
     <p className="muted">仅管理员可配置。密钥保存在服务器私密配置中，不会回显给浏览器或提供给收信人。保存配置不会自动调用模型、发送照片或启用微信推送。</p>
@@ -381,8 +384,9 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
         await api("ai/config", {
           provider, apiKey, enabled: form.has("enabled"), clearKey: form.has("clearKey"),
           model: value(form, "model"),
-          inputRate: Number(value(form, "inputRate")), outputRate: Number(value(form, "outputRate")),
-          monthlyLimit: Number(value(form, "monthlyLimit")),
+          inputRate: value(form, "inputRate").trim() ? Number(value(form, "inputRate")) : null,
+          outputRate: value(form, "outputRate").trim() ? Number(value(form, "outputRate")) : null,
+          monthlyLimit: limitEnabled ? Number(value(form, "monthlyLimit")) : null,
         });
         setApiKey(""); setConnection("");
       }, "AI 配置已保存；密钥不会回显，可先测试连接");
@@ -396,10 +400,12 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
       <label>模型 ID<input name="model" value={model} onChange={event => setModel(event.target.value)} required maxLength={120} placeholder="按账号可用模型填写" /></label>
       <label className="wide">API Key（{config.keyConfigured ? "已保存；留空保留，更换供应商需新密钥" : "尚未配置"}）
         <input name="apiKey" type="password" autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={512} placeholder={config.keyConfigured ? "填写新密钥以替换；不会显示旧值" : "粘贴你的 API Key"} /></label>
-      <label>输入单价（美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.inputRate} required /></label>
-      <label>输出单价（美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.outputRate} required /></label>
-      <p className="muted wide">按官方当前价格填写美元单价；若输入有缓存价，使用较高的未命中价作保守估算。不自动猜价格，也不进行人民币换算。</p>
-      <label>每月预算上限（美元）<input name="monthlyLimit" type="number" min="0.01" max="1000" step="any" defaultValue={config.monthlyLimit} required /></label>
+      <label>输入单价（可选，美元 / 百万 tokens）<input name="inputRate" type="number" min="0" max="10000" step="any" defaultValue={config.inputRate ?? ""} required={limitEnabled} /></label>
+      <label>输出单价（可选，美元 / 百万 tokens）<input name="outputRate" type="number" min="0" max="10000" step="any" defaultValue={config.outputRate ?? ""} required={limitEnabled} /></label>
+      <p className="muted wide">单价留空时，费用记为未知而不是零，仍记录 token 用量。不要把人民币单价填进美元字段。</p>
+      <label className="check"><input type="checkbox" checked={limitEnabled} onChange={event => setLimitEnabled(event.target.checked)} />启用本系统月度费用限额</label>
+      {limitEnabled && <label>每月上限（美元）<input name="monthlyLimit" type="number" min="0.01" max="1000" step="any" defaultValue={config.monthlyLimit ?? 5} required /></label>}
+      {!limitEnabled && <p className="muted">不限额：本系统不按月阻止调用，供应商余额、权限和限流仍然有效。</p>}
       <label className="check"><input name="enabled" type="checkbox" defaultChecked={config.enabled} />启用文字文案生成（每次生成仍需单独同意）</label>
       <label className="check wide"><input name="clearKey" type="checkbox" />删除已保存的密钥（请同时关闭 AI）</label>
       <button disabled={busy}>保存 AI 配置</button>
@@ -407,7 +413,7 @@ function AISettingsPanel({ config, busy, perform }: { config: PublicAI; busy: bo
     <button className="quiet" disabled={busy || !config.keyConfigured} onClick={() => void perform(async () => {
       const result = await api<{ message: string }>("ai/test", { confirm: true }); setConnection(result.message);
     }, "AI 连接检查完成")}>{config.provider === "zhipu" ? "验证智谱配置（少量计费测试）" : "测试已保存配置（模型列表）"}</button>
-    {config.provider === "zhipu" && <p className="muted">智谱验证会用固定文本请求一次模型，消耗少量 tokens，计入预算；不发送照片或素材说明。请先填写单价与预算。</p>}
+    {config.provider === "zhipu" && <p className="muted">智谱验证会用固定文本请求一次模型，消耗少量 tokens；不发送照片或素材说明。不启用限额时无需填写单价。</p>}
     {connection && <p role="status">{connection}</p>}
     <p className="muted">生成草稿只发送你主动同意的事件说明，不上传照片或 GPS；生成结果仍由你审核。预算按 token 单价估算，并非供应商账单的硬性封顶。</p>
   </section>;

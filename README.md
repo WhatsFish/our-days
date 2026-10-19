@@ -14,7 +14,7 @@ with optional WeChat notification. No personal content is included in this repos
   past results are collapsed and limited to five entries in the UI. Collapsing
   a result does not delete photos or backend diagnostic records.
 - Reviewable facts and captions, optional text-only AI drafts with explicit
-  per-request consent, token/cost records and a monthly reservation budget.
+  per-request consent, token/cost records and an optional monthly reservation budget.
 - One edition per local date, immutable published snapshots, cancellation,
   favorites and a reader archive. Future photos cannot be accessed by the reader.
 - A database-locked, restart-safe worker; publication and delivery are separate.
@@ -398,8 +398,9 @@ the account. No photos or real story facts are sent by a connection test.
 
 DeepSeek's official key portal is <https://platform.deepseek.com/api_keys>.
 Use the provider's current model and pricing documentation rather than stale
-model aliases or assumed exchange rates. A nonzero token rate is required before
-enabling generation. New installations default to disabled; dashboard settings
+model aliases or assumed exchange rates. API key and model are sufficient when
+the monthly cap is off. New installations default to AI disabled with no monthly
+cap; dashboard settings
 take priority once saved. Environment-only configuration remains available if
 no dashboard settings file exists.
 
@@ -416,9 +417,17 @@ Only the explicitly consented, saved facts are transmitted; image bytes,
 EXIF and unsaved form text are not sent. Confirm that the configured provider
 is approved for any personal text before enabling it.
 
-Set input/output USD-per-million rates and a monthly budget before enabling.
-Budget is reserved transactionally before submission; failures or missing usage
-retain a conservative estimate rather than hiding possible charges. Candidates
+The administrator can explicitly turn the monthly cap off (`monthlyLimit=null`),
+without replacing it with a large artificial cap. Provider balance/rate limits
+and the duplicate-click cooldown still apply. Input/output prices are optional
+without a cap: missing prices keep `cost_usd=NULL` and record actual token usage,
+never falsely treating an unpriced call as free.
+
+When enabling a monthly cap, both prices must be known. Budget is reserved
+transactionally before submission; failures or missing usage retain a
+conservative estimate rather than hiding possible charges. Prior calls with
+unknown costs prevent a later capped call until accounted for or the cap is
+disabled, rather than silently treating them as zero. Candidates
 are shown to the administrator and must be manually copied/edited into a caption.
 They are not automatically approved or scheduled.
 
