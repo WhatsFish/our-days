@@ -254,6 +254,12 @@ logging, storing or responding to their content; this does not enable chat.
 
 Run `node scripts/prepare-wecom-callback.mjs` on the host to generate missing
 callback keys in `~/.config/our-days-wecom.env`. Existing values are preserved.
+New EncodingAESKey values are canonical 32-byte Base64 keys restricted to 43
+alphanumeric characters for compatibility with the administration UI. If an
+existing key containing `+` or `/` is rejected by the UI, explicitly run
+`node scripts/prepare-wecom-callback.mjs --rotate-aes-key`, recreate the web
+container, and replace EncodingAESKey in the UI with the newly stored value.
+Never remove characters manually; rotation must update both endpoints.
 Fill `WECOM_CORP_ID` and run the preparation script again. It copies only CorpID
 and the two callback keys to a UID-10001, mode-600 runtime file at
 `/data/our-days-callback.env`; the application Secret is never copied to the web.

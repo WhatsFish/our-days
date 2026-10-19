@@ -5,14 +5,29 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const file = path.join(homedir(), ".config/our-days-wecom.env");
+function newAESKey() {
+  let key;
+  do { key = randomBytes(32).toString("base64").slice(0, -1); }
+  while (!/^[a-zA-Z0-9]{43}$/.test(key));
+  return key;
+}
 let text;
 try { text = await readFile(file, "utf8"); }
 catch (error) { if (error.code !== "ENOENT") throw error; text = ""; }
 const defaults = {
   WECOM_CORP_ID: "", WECOM_APP_SECRET: "", WECOM_AGENT_ID: "", WECOM_USER_ID: "",
   WECOM_CALLBACK_TOKEN: randomBytes(16).toString("hex"),
-  WECOM_CALLBACK_AES_KEY: randomBytes(32).toString("base64").slice(0, -1),
+  WECOM_CALLBACK_AES_KEY: newAESKey(),
 };
+if (process.argv.includes("--rotate-aes-key")) {
+  const lines = text.split("\n");
+  if (lines.filter(line => line.startsWith("WECOM_CALLBACK_AES_KEY=")).length > 1) {
+    throw new Error("Duplicate AES key entries; refusing to rotate ambiguous configuration");
+  }
+  const key = newAESKey();
+  text = lines.map(line => line.startsWith("WECOM_CALLBACK_AES_KEY=") ? `WECOM_CALLBACK_AES_KEY='${key}'` : line).join("\n");
+  defaults.WECOM_CALLBACK_AES_KEY = key;
+}
 for (const [name, value] of Object.entries(defaults)) {
   if (!text.split("\n").some(line => line.startsWith(name + "="))) text += `\n${name}='${value}'\n`;
 }
