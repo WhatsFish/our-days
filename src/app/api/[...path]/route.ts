@@ -86,6 +86,10 @@ export async function GET(request: NextRequest, context: Context) {
       return json(rows);
     }
     await requireRole(request, true);
+    if (route === "imports") {
+      const ids = z.array(uuid).min(1).max(100).parse((request.nextUrl.searchParams.get("ids") ?? "").split(","));
+      return json(await query("SELECT id,status,added,duplicates,errors FROM imports WHERE id=ANY($1::uuid[])", [ids]));
+    }
     if (route === "admin") {
       const [photos, editions, imports, deliveries, settings, worker, bytes, costs, ai, aiRuntime] = await Promise.all([
         query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used

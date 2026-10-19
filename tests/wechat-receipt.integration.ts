@@ -55,6 +55,21 @@ try {
   }
   assert.equal((await adminPost("photo/place", { id: randomUUID(), consent: false })).status, 400);
   const settings = { enabled: true, provider: "deepseek", model: "deepseek-flash", apiKey: "synthetic-secret", inputRate: 1, outputRate: 2, monthlyLimit: 5 };
+  const importId = randomUUID();
+  await pool.query("INSERT INTO imports(id,ext,status,added,duplicates) VALUES($1,'image','done',0,1)", [importId]);
+  const importsRequest = (cookie: string, ids: string) => GET(new NextRequest(
+    `https://example.com/our-days/api/imports?ids=${ids}`,
+    { headers: { Cookie: `our_days_session=${cookie}` } },
+  ), { params: Promise.resolve({ path: ["imports"] }) });
+  assert.equal((await importsRequest(reader, importId)).status, 403);
+  assert.equal((await importsRequest(token, "not-a-uuid")).status, 400);
+  const importsResponse = await importsRequest(token, importId);
+  assert.equal(importsResponse.status, 200);
+  const importRows = await importsResponse.json();
+  assert.equal(importRows.length, 1);
+  assert.equal(importRows[0].id, importId);
+  assert.equal(importRows[0].duplicates, 1);
+  await pool.query("DELETE FROM imports WHERE id=$1", [importId]);
   assert.equal((await adminPost("ai/config", settings, reader)).status, 403);
   const saved = await adminPost("ai/config", settings);
   assert.equal(saved.status, 200);

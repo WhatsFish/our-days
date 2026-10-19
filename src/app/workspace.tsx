@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
 import type { PublicAI } from "../lib/ai-config";
 import { captureLabel } from "../lib/photo-metadata";
+import { UploadPanel } from "./upload-panel";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -49,6 +50,7 @@ export function Workspace() {
     setEditions(rows);
     if (current === "admin") setDashboard(await api<Dashboard>("admin"));
   }, []);
+  const refreshUploads = useCallback(() => refresh("admin"), [refresh]);
   useEffect(() => {
     void api<{ role: Role }>("session").then(async session => {
       setRole(session.role);
@@ -96,7 +98,7 @@ export function Workspace() {
     </section> : <>
       <nav className="tabs" aria-label="工作区">
         {[[ "letters", "来信" ], ...(role === "admin" ? [["library", "照片库"], ["schedule", "排期"], ["settings", "设置与投递"]] : [])].map(([key, name]) =>
-          <button key={key} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
+          <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
         <button className="quiet refresh" disabled={busy} onClick={() => void perform(async () => {}, "已刷新")}>刷新</button>
       </nav>
       {tab === "letters" && <LetterBox editions={editions} busy={busy} favorite={edition => perform(async () => {
@@ -109,21 +111,7 @@ export function Workspace() {
           <span>{(dashboard.bytes / 1024 / 1024).toFixed(1)} / {dashboard.quotaMb} MB</span>
         </div>
         {tab === "library" && <>
-          <section className="card">
-            <h2>先收集，再慢慢写。</h2><p className="muted">选择单张、多张 JPEG / PNG / WebP，或 ZIP。单文件 25MB；ZIP 最多 100 条目、解压总量 100MB。HEIC 请先导出 JPEG。</p>
-            <form onSubmit={event => {
-              event.preventDefault();
-              const files = new FormData(event.currentTarget).getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
-              void perform(async () => {
-                if (!files.length) throw new Error("请选择文件");
-                for (const file of files) { const form = new FormData(); form.set("file", file); await api("upload", form); }
-              }, "已加入导入队列；处理结果会自动刷新");
-            }}><label>选择照片或压缩包<input name="photos" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.zip" required /></label><button disabled={busy}>上传到私密照片库</button></form>
-            <div className="jobs">{dashboard.imports.slice(0, 5).map(job => <p key={job.id}>
-              {labels[job.status]} · 新增 {job.added} · 重复 {job.duplicates}
-              {job.errors.map((message, i) => <span className="error-text" key={i}>{message}</span>)}
-            </p>)}</div>
-          </section>
+          <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           {!dashboard.photos.length && <p className="empty">照片库还是空的。第一封来信，从一张照片开始。</p>}
           <div className="photo-grid">{dashboard.photos.map(photo => <PhotoEditor key={photo.id} photo={photo} busy={busy}
             aiEnabled={dashboard.aiEnabled} perform={perform} />)}</div>

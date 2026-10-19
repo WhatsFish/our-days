@@ -9,6 +9,10 @@ with optional WeChat notification. No personal content is included in this repos
   same-origin write protection, rate-limited login, authenticated image delivery.
 - Single/multiple image uploads and ZIP imports, EXIF extraction, deduplication,
   storage quotas, stripped display images and per-file import errors.
+- Upload-local progress distinguishes transfer, queued processing and completed
+  imports. Current batches show filenames, duplicate explanations and errors;
+  past results are collapsed and limited to five entries in the UI. Collapsing
+  a result does not delete photos or backend diagnostic records.
 - Reviewable facts and captions, optional text-only AI drafts with explicit
   per-request consent, token/cost records and a monthly reservation budget.
 - One edition per local date, immutable published snapshots, cancellation,
