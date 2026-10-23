@@ -11,7 +11,7 @@ import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../..
 import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
 import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../../lib/ai-config";
 import { lookupPhotoPlace } from "../../../lib/photo-place";
-import { READY_PHOTO_SQL } from "../../../lib/photo-queue";
+import { READY_PHOTO_SQL, READY_PHOTOS_BASE_SQL } from "../../../lib/photo-queue";
 import { OPERATOR_COUNTS_SQL, resourceStatus, workerHealth, type OperatorCounts } from "../../../lib/operator-status";
 
 export const runtime = "nodejs";
@@ -95,19 +95,21 @@ export async function GET(request: NextRequest, context: Context) {
         status: z.enum(["all", "ready", "unreviewed", "used"]).default("all"),
       }).parse(Object.fromEntries(request.nextUrl.searchParams));
       const used = "EXISTS (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')";
-      const filter = params.status === "ready" ? `p.approved AND NOT ${used}` :
+      const queued = "EXISTS (SELECT 1 FROM photo_queue q WHERE q.photo_id=p.id)";
+      const filter = params.status === "ready" ? queued :
         params.status === "unreviewed" ? `NOT p.approved AND NOT ${used}` :
         params.status === "used" ? used : "true";
       const where = `${filter} AND ($1='' OR strpos(lower(concat_ws(' ',p.date_label,p.place_label,p.caption,p.facts)),lower($1))>0)`;
       const [count] = await query<{ total: number }>(`SELECT count(*)::int AS total FROM photos p WHERE ${where}`, [params.q]);
       const page = Math.min(params.page, Math.max(1, Math.ceil(count.total / 20)));
-      const photos = await query(`SELECT p.*,(${used})::int AS used FROM photos p WHERE ${where}
+      const photos = await query(`SELECT p.*,(${used})::int AS used,(${queued}) AS queued FROM photos p WHERE ${where}
         ORDER BY p.created_at DESC,p.id DESC LIMIT 20 OFFSET $2`, [params.q, (page - 1) * 20]);
       return json({ photos, total: count.total, page });
     }
     if (route.startsWith("photo/")) {
       const id = uuid.parse(route.slice(6));
-      const [photo] = await query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used
+      const [photo] = await query(`SELECT p.*, (SELECT count(*)::int FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled') AS used,
+        EXISTS (SELECT 1 FROM photo_queue q WHERE q.photo_id=p.id) AS queued
         FROM photos p WHERE p.id=$1`, [id]);
       if (!photo) throw new AppError(404, "not_found", "照片不存在");
       return json(photo);
@@ -129,9 +131,7 @@ export async function GET(request: NextRequest, context: Context) {
         aiSettings(), runtimeAI(),
         query(`${READY_PHOTO_SQL}`),
         query<OperatorCounts>(OPERATOR_COUNTS_SQL), resourceStatus(),
-        query(`SELECT p.id,p.date_label,p.place_label,p.caption FROM photos p
-          WHERE approved AND NOT EXISTS (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')
-          ORDER BY p.created_at,p.id LIMIT 100`),
+        query(`${READY_PHOTOS_BASE_SQL} LIMIT 100`),
       ]);
       return json({ editions, imports, deliveries, settings: settings[0], worker: worker[0] ?? null, bytes,
         quotaMb: Number(process.env.MEDIA_QUOTA_MB ?? 200), aiCost: costs[0].total, aiUnknownCost: costs[0].unknown_cost,
@@ -217,6 +217,27 @@ export async function POST(request: NextRequest, context: Context) {
       return json({ id }, 202);
     }
     const body = await parseJson(request);
+    if (route === "queue/settings") {
+      const { loop } = z.object({ loop: z.boolean() }).parse(body);
+      await transaction(async client => {
+        await client.query("SELECT pg_advisory_xact_lock(7316,1)");
+        await client.query("UPDATE settings SET queue_loop=$1 WHERE id=true", [loop]);
+      });
+      return json({ ok: true });
+    }
+    if (route === "queue/pin") {
+      const { id, pinned } = z.object({ id: uuid, pinned: z.boolean() }).parse(body);
+      await transaction(async client => {
+        await client.query("SELECT pg_advisory_xact_lock(7316,1)");
+        const photo = await client.query("SELECT id FROM photos WHERE id=$1 FOR UPDATE", [id]);
+        if (!photo.rowCount) throw new AppError(404, "not_found", "照片不存在");
+        if (pinned && !(await client.query("SELECT photo_id FROM photo_queue WHERE photo_id=$1", [id])).rowCount) {
+          throw new AppError(409, "not_queued", "这张照片不在待发送队列中，请先确认素材；已使用照片需开启循环，失败或未知状态需先处理");
+        }
+        await client.query("UPDATE photos SET queue_pinned_at=CASE WHEN $2 THEN clock_timestamp() ELSE NULL END WHERE id=$1", [id, pinned]);
+      });
+      return json({ ok: true });
+    }
     if (route === "ai/config") return json(await saveAISettings(body));
     if (route === "ai/test") {
       z.object({ confirm: z.literal(true) }).parse(body);

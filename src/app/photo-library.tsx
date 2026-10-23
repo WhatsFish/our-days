@@ -15,12 +15,14 @@ async function request<T>(route: string, body?: unknown, signal?: AbortSignal): 
   if (!response.ok) throw new Error(result.error ?? "请求失败");
   return result as T;
 }
-const statusLabel = (photo: Photo) => photo.used ? "已使用 / 已安排" : photo.approved ? "待发送" : "待确认";
+const statusLabel = (photo: Photo) => photo.queued ? photo.used ? "待循环发送" : "待发送" :
+  photo.used ? "已使用 / 已安排" : photo.approved ? "待发送" : "待确认";
 type Page = { photos: Photo[]; total: number; page: number };
 
-export function PhotoLibrary({ aiEnabled, aiWithPhoto, revision, refresh, selectedId, select }: {
+export function PhotoLibrary({ aiEnabled, aiWithPhoto, revision, refresh, selectedId, select, busy, pin }: {
   aiEnabled: boolean; aiWithPhoto: boolean; revision: object; refresh: () => Promise<void>;
   selectedId: string | null; select: (id: string | null) => void;
+  busy: boolean; pin: (photo: Photo) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -68,8 +70,10 @@ export function PhotoLibrary({ aiEnabled, aiWithPhoto, revision, refresh, select
           <td><button className="thumbnail-button" aria-label={`编辑${photo.date_label || "照片"}`} onClick={() => select(photo.id)}><img className="mini" loading="lazy" src={`${base}/api/media/${photo.id}/thumb`} alt="" /></button></td>
           <td>{photo.date_label || "未填写日期"}<br /><span className="muted">{photo.place_label || "未填写地点"}</span></td>
           <td className="material-caption">{photo.caption || <span className="muted">尚无文案</span>}</td>
-          <td><span className="badge">{statusLabel(photo)}</span></td>
-          <td><button className="quiet" disabled={loading} onClick={() => select(photo.id)}>编辑</button></td>
+          <td><span className="badge">{statusLabel(photo)}</span>{photo.queue_pinned_at && <span className="muted"> · 已置顶</span>}</td>
+          <td><div className="actions"><button className="quiet" disabled={loading || busy} onClick={() => select(photo.id)}>编辑</button>
+            {(photo.queued || photo.queue_pinned_at) && <button className="quiet" disabled={loading || busy} onClick={() => void pin(photo)}>
+              {photo.queue_pinned_at ? "取消置顶" : "置顶"}</button>}</div></td>
         </tr>)}</tbody></table>
     </div>
     {!loading && !error && !rows.length && <p className="empty">没有符合条件的素材。</p>}
@@ -187,7 +191,7 @@ function PhotoDetail({ photo, aiEnabled, aiWithPhoto, refresh, close, previous, 
           <label htmlFor="photo-caption">推送文案</label><textarea id="photo-caption" className="caption-input" value={form.caption} maxLength={3000}
             onChange={event => setForm({ ...form, caption: event.target.value, approved: false })} placeholder="实际印在照片下方的文字，也可以直接手写。" />
           {beforeAI !== null && <button type="button" className="quiet" onClick={() => { setForm({ ...form, caption: beforeAI, approved: false }); setBeforeAI(null); setFeedback("已恢复生成前的文案草稿。"); }}>撤销 AI 填入</button>}
-          <label className="check"><input type="checkbox" checked={form.approved} onChange={event => setForm({ ...form, approved: event.target.checked })} />已核对内容，保存后加入待发送队列{photo.used ? "（已使用素材不会重复发送）" : ""}</label>
+          <label className="check"><input type="checkbox" checked={form.approved} onChange={event => setForm({ ...form, approved: event.target.checked })} />已核对内容，保存后可参与发送{photo.used ? "（已使用素材仅在开启循环时重新排队）" : ""}</label>
         </div>
       </fieldset>
       <div className="editor-footer">

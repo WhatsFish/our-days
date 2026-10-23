@@ -20,7 +20,7 @@ type Dashboard = {
   nextPhotoId: string | null;
   stats: OperatorCounts;
   resources: Resources;
-  queue: Pick<Photo, "id" | "date_label" | "place_label" | "caption">[];
+  queue: Pick<Photo, "id" | "date_label" | "place_label" | "caption" | "queue_pinned_at" | "last_sent_day">[];
   health: { healthy: boolean; reason: string };
 };
 const base = "/our-days";
@@ -120,24 +120,31 @@ export function Workspace() {
         </div>
         {tab === "status" && <OperatorStatus dashboard={dashboard} />}
         {tab === "library" && <>
+          <QueueRules enabled={dashboard.settings.queue_loop ?? false} busy={busy} perform={perform} />
           <details className="card">
             <summary>待发送 {dashboard.stats.ready} 张 · 下一张：{dashboard.queue[0]?.date_label || (dashboard.queue.length ? "未填写日期" : "无")} · 待确认 {dashboard.stats.unreviewed} 张 · 展开队列</summary>
-            <p className="muted">按入库时间排序，每天取一张已确认、未使用素材。最多显示前 100 张，不会自动重复发送。</p>
+            <p className="muted">按真实发送顺序显示前 100 张。置顶优先；其余按{dashboard.settings.queue_loop ? "未发送优先、上次发送日期、入库时间" : "入库时间"}排序。</p>
             {!dashboard.queue.length && <p>队列为空。</p>}
             <div className="table-scroll"><table className="admin-table"><thead><tr><th>顺序</th><th>照片</th><th>拍摄时间 / 地点</th><th>推送文案</th><th>操作</th></tr></thead>
               <tbody>{dashboard.queue.map((photo, index) => <tr key={photo.id}>
-                <td>{index + 1}{index === 0 ? "（下一张）" : ""}</td>
+                <td>{index + 1}{index === 0 ? "（下一张）" : ""}{photo.queue_pinned_at ? " · 已置顶" : ""}
+                  {photo.last_sent_day && <p className="muted">上次：{String(photo.last_sent_day).slice(0, 10)}</p>}</td>
                 <td><img className="mini" src={`${base}/api/media/${photo.id}/thumb`} alt="" /></td>
                 <td>{photo.date_label || "未填写"}<br />{photo.place_label || "未填写"}</td>
                 <td>{photo.caption.slice(0, 80)}{photo.caption.length > 80 ? "…" : ""}</td>
-                <td><button className="quiet" onClick={() => setSelectedPhoto(photo.id)}>编辑</button></td>
+                <td><div className="actions"><button className="quiet" disabled={busy} onClick={() => void perform(async () => {
+                  await api("queue/pin", { id: photo.id, pinned: !photo.queue_pinned_at });
+                }, photo.queue_pinned_at ? "已取消置顶" : "已置顶，将优先安排下一次发送")}>{photo.queue_pinned_at ? "取消置顶" : "置顶"}</button>
+                  <button className="quiet" onClick={() => setSelectedPhoto(photo.id)}>编辑</button></div></td>
               </tr>)}</tbody></table></div>
           </details>
           <details className="card upload-disclosure"><summary>上传照片 / ZIP</summary>
             <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           </details>
           <PhotoLibrary aiEnabled={dashboard.aiEnabled} aiWithPhoto={supportsPhotoCaption(dashboard.ai.provider, dashboard.ai.model)}
-            revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} />
+            revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} busy={busy}
+            pin={photo => perform(async () => { await api("queue/pin", { id: photo.id, pinned: !photo.queue_pinned_at }); },
+              photo.queue_pinned_at ? "已取消置顶" : "已置顶，将优先安排下一次发送")} />
         </>}
         {tab === "history" && <SendHistory dashboard={dashboard} busy={busy} perform={perform} />}
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
@@ -148,6 +155,26 @@ export function Workspace() {
 }
 
 type Perform = (work: () => Promise<void>, message?: string) => Promise<void>;
+
+function QueueRules({ enabled, busy, perform }: { enabled: boolean; busy: boolean; perform: Perform }) {
+  const [loop, setLoop] = useState(enabled);
+  useEffect(() => { setLoop(enabled); }, [enabled]);
+  return <section className="card">
+    <h2>队列规则</h2>
+    <label className="check"><input type="checkbox" checked={loop} disabled={busy}
+      onChange={event => {
+        const next = event.target.checked;
+        setLoop(next);
+        void perform(async () => {
+          try { await api("queue/settings", { loop: next }); }
+          catch (error) { setLoop(enabled); throw error; }
+        }, next ? "循环队列已开启；自动发送开关保持不变" : "循环队列已关闭；只发送未使用素材");
+      }} />循环队列：全部照片发送一轮后，从头继续</label>
+    <p className="muted">{loop ? "新照片优先，发过的照片按上次发送日期从早到晚重新排队。每天仍只发送一张，历史记录全部保留。" :
+      "当前只发送已确认且未使用的素材，发完后等待补充。开启循环不会自动开启每日发送。"}
+      置顶仅优先安排下一次，随后自动取消置顶；多张置顶时，最后置顶的排最前。失败、状态未知或已有指定日期的照片不会自动循环。</p>
+  </section>;
+}
 
 const memory = (bytes: number | null) => bytes === null ? "未提供" : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 function ResourcePanel({ dashboard: d }: { dashboard: Dashboard }) {
@@ -174,6 +201,7 @@ function OperatorStatus({ dashboard: d }: { dashboard: Dashboard }) {
     <p className={d.health.healthy && !diskLow ? "muted" : "error-text"}>{d.health.reason}{diskLow ? "；磁盘可用空间不足 512 MiB" : ""}</p>
     <table className="admin-table"><tbody>
       <tr><th>自动发送</th><td>{d.settings.paused ? "暂停" : "启用"} · {d.settings.send_time} · {d.settings.timezone}</td></tr>
+      <tr><th>队列模式</th><td>{d.settings.queue_loop ? "循环队列（保留历史，发完继续）" : "不循环（仅未使用素材）"}</td></tr>
       <tr><th>发送通道</th><td>{d.pushChannel} · {d.pushReady && d.pushEnabled ? "已配置" : "未就绪"}</td></tr>
       <tr><th>Worker 最近成功</th><td>{d.worker?.last_tick ? new Date(d.worker.last_tick).toLocaleString() : "无"}</td></tr>
       <tr><th>Worker 错误码</th><td>{d.worker?.error_code || "无"}</td></tr>
@@ -235,7 +263,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
   const weatherReady = weatherLat.trim() !== "" && weatherLon.trim() !== "";
   return <section className="card">
     <h2>定时任务配置</h2>
-    <p className="muted">每天一张，FIFO。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>
+    <p className="muted">每天一张，按「队列与素材」中的顺序发送。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>
     <form className="form-grid" onSubmit={event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       if (s.paused && form.has("enabled") && !window.confirm("确认开启每日自动发图？将从下一个发送时间开始，每天向服务器已配置的接收者发送一张已确认素材。")) return;

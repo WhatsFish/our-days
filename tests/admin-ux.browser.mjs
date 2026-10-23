@@ -33,14 +33,17 @@ try {
     caption: index ? "" : "Original caption", approved: false, used: 0,
     captured_raw: null, latitude: null, longitude: null,
   }));
+  photos[0].approved = true;
+  photos[0].queued = true;
+  photos[0].queue_pinned_at = null;
   const dashboard = {
-    editions: [], imports: [], deliveries: [], settings: { paused: true, send_time: "08:00", timezone: "Asia/Shanghai", weather_city: "", weather_lat: null, weather_lon: null, star_note: "" },
+    editions: [], imports: [], deliveries: [], settings: { paused: true, queue_loop: false, send_time: "08:00", timezone: "Asia/Shanghai", weather_city: "", weather_lat: null, weather_lon: null, star_note: "" },
     worker: { last_tick: new Date().toISOString(), error_code: null }, bytes: 100, quotaMb: 200,
     pushEnabled: true, pushReady: true, pushChannel: "wecom", aiEnabled: true, aiCost: "0.1", aiUnknownCost: 0,
     ai: { enabled: true, provider: "zhipu", model: "glm-5.3-flash", keyConfigured: true, source: "dashboard", currency: "CNY", inputRate: 0.8, outputRate: 2.8, monthlyLimit: 100 },
     stats: { photos: 103, ready: 0, unreviewed: 103, submitted: 0, provider_delivered: 0, failed: 0, unknown: 0, pending_delivery: 0, pending_import: 0 },
     resources: { processRss: 1000, containerUsage: 1000, containerLimit: 536870912, hostMemoryTotal: 1000000000, hostMemoryFree: 500000000, diskFree: 2000000000, diskTotal: 30000000000 },
-    queue: [], health: { healthy: true, reason: "Test worker healthy" },
+    queue: [photos[0]], health: { healthy: true, reason: "Test worker healthy" },
   };
   let generated = 0, saved = null, lastFacts = "", lastContext = null;
   await page.route("**/our-days/api/**", async route => {
@@ -50,7 +53,15 @@ try {
     if (endpoint === "session") body = { role: "admin" };
     else if (endpoint === "editions") body = [];
     else if (endpoint === "admin") body = dashboard;
-    else if (endpoint === "photos") {
+    else if (endpoint === "queue/settings") {
+      dashboard.settings.queue_loop = route.request().postDataJSON().loop;
+      body = { ok: true };
+    } else if (endpoint === "queue/pin") {
+      const input = route.request().postDataJSON();
+      const photo = photos.find(photo => photo.id === input.id);
+      photo.queue_pinned_at = input.pinned ? new Date().toISOString() : null;
+      body = { ok: true };
+    } else if (endpoint === "photos") {
       const q = (url.searchParams.get("q") || "").toLowerCase();
       const matching = photos.filter(photo => `${photo.date_label} ${photo.place_label}`.toLowerCase().includes(q));
       const number = Number(url.searchParams.get("page") || 1);
@@ -76,6 +87,16 @@ try {
   await page.goto(`${origin}/our-days`);
   await page.getByRole("button", { name: "队列与素材", exact: true }).click();
   await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
+  const loop = page.getByRole("checkbox", { name: "循环队列：全部照片发送一轮后，从头继续" });
+  await loop.check();
+  await page.getByText("循环队列已开启；自动发送开关保持不变", { exact: true }).waitFor();
+  assert.equal(dashboard.settings.paused, true);
+  await loop.uncheck();
+  await page.getByText("循环队列已关闭；只发送未使用素材", { exact: true }).waitFor();
+  await page.locator(".material-table").getByRole("button", { name: "置顶", exact: true }).click();
+  await page.getByText("已置顶，将优先安排下一次发送", { exact: true }).waitFor();
+  await page.locator(".material-table").getByRole("button", { name: "取消置顶", exact: true }).click();
+  await page.getByText("已取消置顶", { exact: true }).waitFor();
   assert.equal(await page.locator(".material-table tbody tr").count(), 20);
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await page.getByRole("cell", { name: /^Synthetic 21 / }).waitFor();

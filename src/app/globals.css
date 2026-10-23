@@ -93,7 +93,7 @@ fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
 .material-table th:first-child { width: 84px; }
 .material-table th:nth-child(2) { width: 23%; }
 .material-table th:nth-child(4) { width: 140px; }
-.material-table th:last-child { width: 85px; }
+.material-table th:last-child { width: 120px; }
 .material-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thumbnail-button { padding: 0; background: transparent; display: block; }
 .mini { width: 58px; height: 64px; object-fit: contain; background: #eeeee6; }

@@ -33,11 +33,12 @@ export async function tick() {
           if (!timing.due || (await client.query("SELECT id FROM editions WHERE day=$1::date", [today])).rowCount) return;
           const [next] = (await client.query<Photo>(`${READY_PHOTO_SQL} FOR UPDATE OF p SKIP LOCKED`)).rows;
           if (!next) throw new AppError(409, "photo_queue_empty", "已审核的待发送照片用完了，请补充素材");
-          await client.query(
+          const inserted = await client.query(
             `INSERT INTO editions(id,day,photo_id,title,send_at,notify)
              SELECT $1,$2::date,$3,'今天的照片',($2::date+send_time::time) AT TIME ZONE timezone,true
-             FROM settings WHERE id=true ON CONFLICT(day) DO NOTHING`,
+             FROM settings WHERE id=true ON CONFLICT(day) DO NOTHING RETURNING id`,
             [randomUUID(), today, next.id]);
+          if (inserted.rowCount) await client.query("UPDATE photos SET queue_pinned_at=NULL WHERE id=$1", [next.id]);
         });
       }
       const due = await query<{ id: string; day: string; photo_id: string }>(

@@ -5,8 +5,7 @@ import { mediaRoot } from "./media";
 export const OPERATOR_COUNTS_SQL = `SELECT
   (SELECT count(*)::int FROM photos) AS photos,
   (SELECT count(*)::int FROM photos WHERE NOT approved) AS unreviewed,
-  (SELECT count(*)::int FROM photos p WHERE approved AND NOT EXISTS
-    (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')) AS ready,
+  (SELECT count(*)::int FROM photo_queue) AS ready,
   (SELECT count(*)::int FROM deliveries WHERE status IN ('accepted','delivered')) AS submitted,
   (SELECT count(*)::int FROM deliveries WHERE status='delivered') AS provider_delivered,
   (SELECT count(*)::int FROM deliveries WHERE status='failed') AS failed,

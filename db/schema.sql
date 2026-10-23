@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS imports (
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS metadata_place text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS gps_place_guess text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS queue_pinned_at timestamptz;
 CREATE TABLE IF NOT EXISTS settings (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   timezone text NOT NULL DEFAULT 'Asia/Shanghai',
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 INSERT INTO settings(id) VALUES (true) ON CONFLICT DO NOTHING;
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS enabled_at timestamptz;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS queue_loop boolean NOT NULL DEFAULT false;
 ALTER TABLE settings ALTER COLUMN almanac SET DEFAULT false;
 CREATE TABLE IF NOT EXISTS editions (
   id uuid PRIMARY KEY,
@@ -113,6 +115,19 @@ CREATE INDEX IF NOT EXISTS editions_due ON editions(send_at) WHERE status='sched
 ALTER TABLE ai_events ADD COLUMN IF NOT EXISTS task text NOT NULL DEFAULT 'caption';
 ALTER TABLE ai_events ADD COLUMN IF NOT EXISTS error_code text;
 ALTER TABLE ai_events ADD COLUMN IF NOT EXISTS cost_cny numeric;
+CREATE OR REPLACE VIEW photo_queue AS
+SELECT p.id AS photo_id,
+  (SELECT max(e.day) FROM editions e WHERE e.photo_id=p.id AND e.status='published') AS last_sent_day
+FROM photos p CROSS JOIN settings s
+WHERE s.id=true AND p.approved
+  AND NOT EXISTS (
+    SELECT 1 FROM editions e LEFT JOIN deliveries d ON d.edition_id=e.id
+    WHERE e.photo_id=p.id AND
+      (e.status='scheduled' OR (e.status='published' AND COALESCE(d.status,'pending') NOT IN ('accepted','delivered')))
+  )
+  AND (s.queue_loop OR NOT EXISTS (
+    SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled'
+  ));
 CREATE INDEX IF NOT EXISTS imports_queued ON imports(created_at) WHERE status IN ('queued','processing');
 CREATE OR REPLACE VIEW service_health AS
 SELECT
@@ -124,10 +139,10 @@ SELECT
     AND created_at<now()-interval '10 minutes') AS stuck_imports,
   (SELECT count(*)::int FROM editions,settings WHERE status='scheduled' AND NOT paused
     AND send_at<now()-interval '15 minutes') AS missed_editions,
-  (SELECT count(*)::int FROM photos p WHERE approved AND NOT EXISTS
-    (SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled')) AS next_week_count,
+  (SELECT count(*)::int FROM photo_queue) AS next_week_count,
   (SELECT count(*)::int FROM deliveries d JOIN editions e ON e.id=d.edition_id
     WHERE d.status IN ('failed','unknown','pending','sending')
-    OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention;
+    OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention,
+  (SELECT queue_loop FROM settings WHERE id=true) AS queue_loop;
 INSERT INTO schema_version(version) VALUES (1) ON CONFLICT DO NOTHING;
 COMMIT;

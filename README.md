@@ -37,8 +37,10 @@ with optional WeChat notification. No personal content is included in this repos
 - Prefilled date/place descriptions must still be reviewed. Missing EXIF is never replaced
   with file modification time. AI cannot approve or publish its own output.
 - No automatic catch-up after a missed local date. In WeCom daily mode the
-  worker picks the oldest approved, unused photo at the configured local time.
-  Unapproved, previously used and manually reserved future photos are excluded.
+  worker picks one eligible approved photo at the configured local time.
+  Without cycling, previously used photos are excluded. With cycling enabled,
+  eligible photos return to the tail, ordered by last published date and then
+  import order, so unseen photos precede repeats.
 - The current archive shows the newest 366 editions; the photo library supports
   server-side search and 20-row pagination. This is a single-recipient application.
 - AI conversations, video, multi-recipient delivery and automated offsite
@@ -95,11 +97,35 @@ This is a private single-recipient product, not a multi-tenant public service.
 Public signup/payment and multi-user data isolation require separate design.
 
 In daily mode, one database edition per local date prevents repeat ticks or
-concurrent workers from creating multiple messages. The approved stock is FIFO.
+concurrent workers from creating multiple messages. The approved stock is FIFO
+unless an administrator pins a photo or enables cycling.
 Previously created explicit date editions are preserved and take priority;
 cancelling one skips that local date rather than silently replacing it. Enabling
 after today's configured time waits until the next day's time. Failed or unknown
 submissions do not advance to a different photo on the same date.
+
+### Queue pinning and cycling
+
+In **队列与素材**, the queue and library provide **置顶 / 取消置顶** for
+eligible photos. The newest pin goes first; multiple pins follow pin time.
+A pin is consumed atomically when the automatic daily edition is created,
+not repeatedly applied on every future cycle. Removing a pin restores natural
+queue order. Pinning does not send immediately or override an already-created
+daily edition.
+
+The **循环队列** switch is off by default and is independent of the daily
+send-enable switch. When enabled, photos whose past editions were all
+accepted/delivered can reenter the queue; their immutable historical snapshots
+are retained. New photos are selected before repeats, and the least recently
+published photos come first within the repeat queue. Repeats use the current
+saved and approved caption, not a modified historical snapshot.
+
+Unreviewed photos, scheduled reservations, and photos with failed, unknown,
+pending, disabled or missing delivery results are held out of automatic cycles.
+The queue is still limited to one edition per local day, including when there
+is only one eligible photo. Turning cycling off excludes all previously used
+photos again without deleting history. The shared `photo_queue` database view
+drives worker selection, library filters, dashboard counts and service monitoring.
 
 Node.js 22+, Next.js 15.5, React 19, PostgreSQL 16, Tailwind, Sharp and ExifTool.
 The older fleet Next.js 14 version was not used because published advisories

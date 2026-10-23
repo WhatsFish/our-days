@@ -50,8 +50,11 @@ export type Photo = z.infer<typeof photoEdit> & {
   latitude: number | null;
   longitude: number | null;
   used: number;
+  queued?: boolean;
+  queue_pinned_at?: string | null;
+  last_sent_day?: string | null;
 };
-export type Settings = z.infer<typeof settingsInput>;
+export type Settings = z.infer<typeof settingsInput> & { queue_loop?: boolean };
 export type Snapshot = {
   photo_id: string;
   date_label: string;
