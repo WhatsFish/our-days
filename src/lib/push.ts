@@ -16,7 +16,7 @@ export async function sendNotice(editionId: string, fetcher: typeof fetch = fetc
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token, to, channel: "wechat", template: "txt",
-        title: "拾光 · 今天的来信已更新",
+        title: "鱼羊日记 · 今天的照片已更新",
         content: `你订阅的私人来信已更新。请在已配对的设备打开：${page.href}`,
       }),
     });

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+  <title>鱼羊日记</title>
+  <desc>A teal fish and a cream sheep together inside an instant-photo frame.</desc>
+  <rect width="640" height="640" rx="144" fill="#f3e9db"/>
+  <circle cx="320" cy="296" r="228" fill="#e3d6c3"/>
+  <g transform="rotate(-6 320 320)">
+    <rect x="117" y="106" width="406" height="438" rx="22" fill="#d9cbb7"/>
+    <rect x="109" y="98" width="406" height="438" rx="22" fill="#fffdf7"/>
+    <rect x="135" y="124" width="354" height="308" rx="12" fill="#c8deda"/>
+    <path d="M135 353 Q230 314 316 356 T489 347 V432 H135Z" fill="#aecdc5"/>
+    <path d="M310 194 C292 167 254 182 266 207 C280 230 310 245 310 245 C310 245 343 224 351 201 C359 176 325 168 310 194Z" fill="#d88e7f"/>
+    <g stroke="#456b64" stroke-width="7" stroke-linejoin="round">
+      <path d="M179 293 L150 264 L150 328Z" fill="#55968c"/>
+      <ellipse cx="224" cy="293" rx="66" ry="45" fill="#63a69c"/>
+      <path d="M214 253 Q224 231 243 252" fill="#55968c"/>
+    </g>
+    <circle cx="250" cy="285" r="7" fill="#344d49"/>
+    <path d="M253 306 Q264 313 273 302" fill="none" stroke="#344d49" stroke-width="5" stroke-linecap="round"/>
+    <ellipse cx="236" cy="306" rx="11" ry="7" fill="#e4b0a0"/>
+    <g stroke="#8d7b65" stroke-width="6" stroke-linejoin="round">
+      <path d="M345 340 L342 365 M406 340 L409 365" stroke-width="13" stroke-linecap="round"/>
+      <path d="M326 268 C307 242 338 222 355 240 C369 213 398 220 400 241 C426 226 450 253 432 271 C458 284 445 315 427 314 C435 340 405 356 389 337 C372 359 342 347 344 328 C315 332 303 298 325 287 C316 280 319 272 326 268Z" fill="#fffaf0"/>
+      <ellipse cx="342" cy="276" rx="16" ry="11" fill="#e7d2b8" transform="rotate(-25 342 276)"/>
+      <ellipse cx="416" cy="276" rx="16" ry="11" fill="#e7d2b8" transform="rotate(25 416 276)"/>
+      <ellipse cx="379" cy="294" rx="35" ry="39" fill="#e9d6bb"/>
+    </g>
+    <path d="M357 255 Q351 231 367 237 M400 255 Q405 231 389 237" fill="none" stroke="#8d7b65" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="367" cy="289" r="5" fill="#504c42"/>
+    <circle cx="391" cy="289" r="5" fill="#504c42"/>
+    <path d="M374 303 L384 303 L379 309Z" fill="#8d6d60"/>
+    <path d="M379 309 Q370 319 364 310 M379 309 Q388 319 394 310" fill="none" stroke="#8d6d60" stroke-width="4" stroke-linecap="round"/>
+    <ellipse cx="358" cy="305" rx="8" ry="5" fill="#dca89a"/>
+    <ellipse cx="400" cy="305" rx="8" ry="5" fill="#dca89a"/>
+    <path d="M252 475 Q312 493 372 475" fill="none" stroke="#d88e7f" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="226" cy="472" r="6" fill="#d88e7f"/>
+    <circle cx="398" cy="472" r="6" fill="#d88e7f"/>
+  </g>
+</svg>

@@ -89,7 +89,7 @@ export function Workspace() {
   }
   if (loading) return <main className="shell"><h1>加载中…</h1></main>;
   return <main className="shell">
-    <header className="masthead"><h1>{role === "reader" ? "照片记录" : "照片推送管理"}</h1>
+    <header className="masthead"><h1>鱼羊日记{role === "admin" ? " · 管理后台" : ""}</h1>
       {role && <button className="quiet" disabled={busy} onClick={() => void perform(async () => {
         await api("logout", {}); setRole(null); setDashboard(null); setEditions([]);
       }, "已退出", false)}>退出</button>}

@@ -28,6 +28,7 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 RUN groupadd -g 10001 ourdays && useradd -u 10001 -g ourdays ourdays
 COPY --from=build --chown=10001:10001 /app/.next/standalone ./
 COPY --from=build --chown=10001:10001 /app/.next/static ./.next/static
+COPY --from=build --chown=10001:10001 /app/public ./public
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "server.js"]

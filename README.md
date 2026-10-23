@@ -1,4 +1,4 @@
-# Our Days / 拾光
+# 鱼羊日记 / Our Days
 
 A private photo-letter application. One reviewed photograph and caption per day,
 with optional WeChat notification. No personal content is included in this repository.
@@ -13,8 +13,8 @@ with optional WeChat notification. No personal content is included in this repos
   imports. Current batches show filenames, duplicate explanations and errors;
   past results are collapsed and limited to five entries in the UI. Collapsing
   a result does not delete photos or backend diagnostic records.
-- Reviewable facts and captions, optional text-only AI drafts with explicit
-  per-request consent, token/cost records and an optional monthly reservation budget.
+- Reviewable facts and captions, optional photo-aware GLM drafts, token/cost
+  records and a fixed CNY 100 monthly reservation budget.
 - One edition per local date, immutable published snapshots, cancellation,
   favorites and a reader archive. Future photos cannot be accessed by the reader.
 - A database-locked, restart-safe worker; publication and delivery are separate.
@@ -39,9 +39,9 @@ with optional WeChat notification. No personal content is included in this repos
 - No automatic catch-up after a missed local date. In WeCom daily mode the
   worker picks the oldest approved, unused photo at the configured local time.
   Unapproved, previously used and manually reserved future photos are excluded.
-- The current archive shows the newest 366 editions; the photo list shows
-  at most 1,000 records. This is a single-recipient application.
-- AI conversations, video, map lookup, multi-recipient delivery and automated
+- The current archive shows the newest 366 editions; the photo library supports
+  server-side search and 20-row pagination. This is a single-recipient application.
+- AI conversations, video, multi-recipient delivery and automated offsite
   cloud backups are not implemented.
 
 ## Runtime
@@ -61,6 +61,38 @@ enable automatic sending. There is no required per-photo scheduling step.
 Timezone defaults to Asia/Shanghai and is an advanced option, not a separate
 schedule. Weather/calendar/editorial notes and AI credentials are optional.
 The reader's archive remains a separate authenticated view, not read tracking.
+
+## Private launch and identity
+
+The public product name is **鱼羊日记**. Technical repository, database, container
+and URL identifiers remain `our-days`; branding does not change routing or stored
+data. The original fish/sheep instant-photo icon is available at
+`/our-days/branding/yuyang-diary.svg` and `yuyang-diary.png` (640px).
+The image card remains unbranded; the icon belongs to the application identity.
+
+For a private two-person launch:
+
+- Maintain enough approved, unused materials before 08:00 Asia/Shanghai.
+  Queue exhaustion reports `photo_queue_empty`; old photos are never repeated.
+- Add the recipient as a real internal WeCom member, activate membership, and
+  include her in this self-built application's visible scope. Being an external
+  WeChat contact or following the plugin alone is insufficient.
+- Bind her ordinary WeChat through **My Enterprise / WeChat Plugin**, and enable
+  enterprise-message receipt without requiring the WeCom client for viewing.
+- Explicitly switch the single configured `WECOM_USER_ID` to her member UserID,
+  preserving secrets; do not assume adding a member redirects delivery.
+  The worker reads the separate WeCom env file on each new invocation.
+- With her approval, perform one manual receipt check on her phone, then confirm
+  one actual 08:00 scheduled delivery. API acceptance alone is not phone receipt.
+- The WeCom self-built application name/icon and the enterprise/plugin
+  name/icon are separate identities. The latter is managed in the WeCom console.
+  Enterprise-short-name changes can take up to 96 hours to reach the plugin.
+- Check `/status`, worker/backup heartbeats and disk headroom. Retain original
+  photos and a separate encrypted off-VM backup/key copy: same-disk backups
+  do not protect against loss of this VM.
+
+This is a private single-recipient product, not a multi-tenant public service.
+Public signup/payment and multi-user data isolation require separate design.
 
 In daily mode, one database edition per local date prevents repeat ticks or
 concurrent workers from creating multiple messages. The approved stock is FIFO.

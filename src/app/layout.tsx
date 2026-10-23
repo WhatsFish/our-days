@@ -4,8 +4,12 @@ import "./globals.css";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "照片推送管理",
-  description: "Private photo delivery administration",
+  title: "鱼羊日记",
+  description: "鱼羊日记 · 私密照片与每日回忆",
+  icons: {
+    icon: "/our-days/branding/yuyang-diary.svg",
+    apple: "/our-days/branding/yuyang-diary.png",
+  },
   robots: { index: false, follow: false },
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
