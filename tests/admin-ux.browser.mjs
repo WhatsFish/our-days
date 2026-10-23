@@ -88,11 +88,18 @@ try {
   await page.getByRole("button", { name: "队列与素材", exact: true }).click();
   await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
   const loop = page.getByRole("checkbox", { name: "循环队列：全部照片发送一轮后，从头继续" });
+  assert.equal(await loop.count(), 0, "Cycling is a configuration control, not a library control");
+  assert.equal(await page.locator("main > .card").first().getByRole("heading", { name: "上传素材", exact: true }).count(), 1,
+    "Upload is the first material-page module");
+  assert.equal(await page.locator('input[type="file"]').isVisible(), true, "Upload is expanded without any extra click");
+  await page.getByRole("button", { name: "API 与系统配置", exact: true }).click();
   await loop.check();
   await page.getByText("循环队列已开启；自动发送开关保持不变", { exact: true }).waitFor();
   assert.equal(dashboard.settings.paused, true);
   await loop.uncheck();
   await page.getByText("循环队列已关闭；只发送未使用素材", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "队列与素材", exact: true }).click();
+  await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
   await page.locator(".material-table").getByRole("button", { name: "置顶", exact: true }).click();
   await page.getByText("已置顶，将优先安排下一次发送", { exact: true }).waitFor();
   await page.locator(".material-table").getByRole("button", { name: "取消置顶", exact: true }).click();

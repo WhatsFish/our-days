@@ -97,7 +97,6 @@ fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
 .material-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thumbnail-button { padding: 0; background: transparent; display: block; }
 .mini { width: 58px; height: 64px; object-fit: contain; background: #eeeee6; }
-.upload-disclosure > .card { border: 0; padding: 16px 0 0; margin: 0; }
 .photo-dialog { width: min(1160px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: #fffdf8; }
 .photo-dialog::backdrop { background: rgb(20 27 24 / 55%); }
 .photo-dialog h2 { font-family: inherit; font-size: 20px; font-weight: 600; margin: 0; }

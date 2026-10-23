@@ -113,7 +113,8 @@ not repeatedly applied on every future cycle. Removing a pin restores natural
 queue order. Pinning does not send immediately or override an already-created
 daily edition.
 
-The **循环队列** switch is off by default and is independent of the daily
+The **循环队列** switch lives in **API 与系统配置**, is off by default,
+and is independent of the daily
 send-enable switch. When enabled, photos whose past editions were all
 accepted/delivered can reenter the queue; their immutable historical snapshots
 are retained. New photos are selected before repeats, and the least recently
@@ -126,6 +127,8 @@ The queue is still limited to one edition per local day, including when there
 is only one eligible photo. Turning cycling off excludes all previously used
 photos again without deleting history. The shared `photo_queue` database view
 drives worker selection, library filters, dashboard counts and service monitoring.
+The material page begins with the always-expanded upload panel, followed by
+the queue and searchable library; configuration switches are kept on the settings page.
 
 Node.js 22+, Next.js 15.5, React 19, PostgreSQL 16, Tailwind, Sharp and ExifTool.
 The older fleet Next.js 14 version was not used because published advisories

@@ -120,7 +120,7 @@ export function Workspace() {
         </div>
         {tab === "status" && <OperatorStatus dashboard={dashboard} />}
         {tab === "library" && <>
-          <QueueRules enabled={dashboard.settings.queue_loop ?? false} busy={busy} perform={perform} />
+          <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           <details className="card">
             <summary>待发送 {dashboard.stats.ready} 张 · 下一张：{dashboard.queue[0]?.date_label || (dashboard.queue.length ? "未填写日期" : "无")} · 待确认 {dashboard.stats.unreviewed} 张 · 展开队列</summary>
             <p className="muted">按真实发送顺序显示前 100 张。置顶优先；其余按{dashboard.settings.queue_loop ? "未发送优先、上次发送日期、入库时间" : "入库时间"}排序。</p>
@@ -137,9 +137,6 @@ export function Workspace() {
                 }, photo.queue_pinned_at ? "已取消置顶" : "已置顶，将优先安排下一次发送")}>{photo.queue_pinned_at ? "取消置顶" : "置顶"}</button>
                   <button className="quiet" onClick={() => setSelectedPhoto(photo.id)}>编辑</button></div></td>
               </tr>)}</tbody></table></div>
-          </details>
-          <details className="card upload-disclosure"><summary>上传照片 / ZIP</summary>
-            <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
           </details>
           <PhotoLibrary aiEnabled={dashboard.aiEnabled} aiWithPhoto={supportsPhotoCaption(dashboard.ai.provider, dashboard.ai.model)}
             revision={dashboard} refresh={refreshUploads} selectedId={selectedPhoto} select={setSelectedPhoto} busy={busy}
@@ -159,7 +156,7 @@ type Perform = (work: () => Promise<void>, message?: string) => Promise<void>;
 function QueueRules({ enabled, busy, perform }: { enabled: boolean; busy: boolean; perform: Perform }) {
   const [loop, setLoop] = useState(enabled);
   useEffect(() => { setLoop(enabled); }, [enabled]);
-  return <section className="card">
+  return <section>
     <h2>队列规则</h2>
     <label className="check"><input type="checkbox" checked={loop} disabled={busy}
       onChange={event => {
@@ -304,6 +301,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       <button disabled={busy}>保存设置</button>
       {feedback && <p className="wide alert" role="status">{feedback}</p>}
     </form>
+    <hr /><QueueRules enabled={s.queue_loop ?? false} busy={busy} perform={perform} />
     <hr /><AISettingsPanel config={d.ai} busy={busy} perform={perform} />
     <hr /><ResourcePanel dashboard={d} />
   </section>;
