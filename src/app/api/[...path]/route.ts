@@ -93,8 +93,10 @@ export async function GET(request: NextRequest, context: Context) {
       const requested = z.coerce.number().int().min(1).max(100000).parse(request.nextUrl.searchParams.get("page") ?? 1);
       const [count] = await query<{ total: number }>("SELECT count(*)::int AS total FROM special_materials");
       const page = Math.min(requested, Math.max(1, Math.ceil(count.total / 20)));
-      const items = await query(`SELECT id,title,original_ext,original_bytes,width,height,created_at
-        FROM special_materials ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $1`, [(page - 1) * 20]);
+      const items = await query(`SELECT m.id,m.title,m.original_ext,m.original_bytes,m.width,m.height,m.created_at,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('id',s.id,'send_at',s.send_at,'status',s.status,'error_code',s.error_code)
+          ORDER BY s.send_at DESC) FROM special_sends s WHERE s.material_id=m.id),'[]'::jsonb) AS sends
+        FROM special_materials m ORDER BY m.created_at DESC,m.id DESC LIMIT 20 OFFSET $1`, [(page - 1) * 20]);
       return json({ items, page, total: count.total });
     }
     if (params.path[0] === "special" && params.path.length === 3) {

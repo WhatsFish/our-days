@@ -7,12 +7,14 @@ import { deliveryStatus, sendNotice } from "./push";
 import { sendWechatNotice, wechatReady } from "./wechat";
 import { READY_PHOTO_SQL } from "./photo-queue";
 import { sendPhotoCard } from "./photo-card";
+import { processSpecialSends } from "./special-send";
 
 export async function tick() {
   const lock = await pool.connect();
   const acquired = (await lock.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(7316,1) AS locked")).rows[0].locked;
   if (!acquired) { lock.release(); return; }
   try {
+    await processSpecialSends();
     await processImport();
     await query("DELETE FROM sessions WHERE expires_at<now()");
     await query(

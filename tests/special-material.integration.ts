@@ -36,7 +36,7 @@ const fingerprint = async () => (await pool.query(`SELECT
   (SELECT to_jsonb(s) FROM settings s WHERE id=true) AS settings`)).rows[0];
 try {
   await pool.query(await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"));
-  await pool.query("TRUNCATE special_materials");
+  await pool.query("TRUNCATE special_sends,special_materials");
   for (const [token, role] of [[admin, "admin"], [reader, "reader"]]) {
     await pool.query("INSERT INTO sessions VALUES($1,$2,now()+interval '1 hour') ON CONFLICT DO NOTHING",
       [createHash("sha256").update(token).digest("hex"), role]);
@@ -87,7 +87,7 @@ try {
   assert.deepEqual(await fingerprint(), before, "Special uploads must not change the normal queue, schedule, captions or delivery history");
   console.log("Special materials passed: admin-only upload/list/preview/original, same-origin, original preservation, stripped preview, dedup, image validation, shared quota, and untouched daily records.");
 } finally {
-  await pool.query("TRUNCATE special_materials");
+  await pool.query("TRUNCATE special_sends,special_materials");
   await pool.end();
   const special = path.join(root, "special");
   for (const file of await readdir(special)) await unlink(path.join(special, file));

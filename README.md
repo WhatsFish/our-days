@@ -81,6 +81,20 @@ backup. Readers and unauthenticated requests cannot access the private files.
 Uploading only stores artwork: it does not schedule a special send, enter the
 daily queue, trigger AI or change the daily send time. A midnight greeting must
 be explicitly scheduled separately once the actual uploaded artwork is confirmed.
+An operator can call `scheduleSpecialSend(materialId, offsetDateTime)` to create
+a persistent one-off task in `special_sends`. It freezes the image SHA256 and
+recipient allowlist, accepts original JPEG/PNG under 2MiB, and deduplicates
+material/time pairs. The existing every-minute worker processes it independently
+of the daily pause switch, before daily work. No extra cron or transient sleep
+process is required. The global push readiness gate still applies.
+
+The original bytes are sent directly, with no image-card rendering. A task is
+claimed before submission and never retried automatically after failure,
+partial acceptance, interruption or transport ambiguity. Overdue tasks beyond
+15 minutes fail explicitly instead of surprising recipients much later.
+The special-material page displays scheduled time (Beijing), submission status
+and errors; monitoring includes failed/unknown/overdue special tasks. These tasks
+never reserve the daily edition or consume the regular photo queue.
 
 ## Private launch and identity
 

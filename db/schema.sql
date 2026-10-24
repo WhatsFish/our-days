@@ -46,6 +46,22 @@ CREATE TABLE IF NOT EXISTS special_materials (
   height integer NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS special_sends (
+  id uuid PRIMARY KEY,
+  material_id uuid NOT NULL REFERENCES special_materials(id),
+  send_at timestamptz NOT NULL,
+  recipients text[] NOT NULL CHECK (cardinality(recipients) BETWEEN 1 AND 2),
+  image_sha256 text NOT NULL,
+  status text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','sending','accepted','failed','unknown')),
+  attempts integer NOT NULL DEFAULT 0,
+  record_id text,
+  recipient_results jsonb,
+  error_code text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(material_id,send_at)
+);
+CREATE INDEX IF NOT EXISTS special_sends_due ON special_sends(send_at) WHERE status='scheduled';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS metadata_place text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS gps_place_guess text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;
@@ -152,9 +168,11 @@ SELECT
   (SELECT count(*)::int FROM editions,settings WHERE status='scheduled' AND NOT paused
     AND send_at<now()-interval '15 minutes') AS missed_editions,
   (SELECT count(*)::int FROM photo_queue) AS next_week_count,
-  (SELECT count(*)::int FROM deliveries d JOIN editions e ON e.id=d.edition_id
+  ((SELECT count(*)::int FROM deliveries d JOIN editions e ON e.id=d.edition_id
     WHERE d.status IN ('failed','unknown','pending','sending')
-    OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) AS delivery_attention,
+    OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) +
+    (SELECT count(*)::int FROM special_sends WHERE status IN ('failed','unknown','sending')
+      OR (status='scheduled' AND send_at<now()-interval '2 minutes'))) AS delivery_attention,
   (SELECT queue_loop FROM settings WHERE id=true) AS queue_loop;
 INSERT INTO schema_version(version) VALUES (1) ON CONFLICT DO NOTHING;
 COMMIT;

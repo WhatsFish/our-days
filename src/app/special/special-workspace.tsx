@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type { SpecialMaterial } from "../../lib/special-media";
 
 const base = "/our-days";
+const sendLabels: Record<string, string> = {
+  scheduled: "已定时，等待发送", sending: "正在提交", accepted: "平台已接受",
+  failed: "失败，未自动重试", unknown: "结果未知，禁止自动重发",
+};
 type Library = { items: SpecialMaterial[]; total: number; page: number };
 async function api<T>(endpoint: string, body?: unknown): Promise<T> {
   const response = await fetch(`${base}/api/${endpoint}`, {
@@ -111,7 +115,12 @@ export function SpecialWorkspace() {
           <a href={`${base}/api/special/${item.id}/preview`} target="_blank" rel="noreferrer">
             <img className="mini" src={`${base}/api/special/${item.id}/preview`} alt={item.title} /></a>
           <div><strong>{item.title}</strong><p className="muted">{item.width} × {item.height} · {(Number(item.original_bytes) / 1024 / 1024).toFixed(2)} MB · {new Date(item.created_at).toLocaleString("zh-CN")}</p>
-            <p className="muted">独立保存，不自动发送</p></div>
+            {!item.sends?.length && <p className="muted">独立保存，尚未安排发送</p>}
+            {item.sends?.map(send => <p key={send.id} className="muted">
+              {new Date(send.send_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（北京时间） ·
+              {sendLabels[send.status] ?? send.status}
+              {send.error_code ? ` · ${send.error_code}` : ""}
+            </p>)}</div>
           <a href={`${base}/api/special/${item.id}/original`}>下载原文件</a>
         </article>)}
         {library && !library.items.length && <p className="empty">暂无特殊素材，上传后会显示在这里。</p>}

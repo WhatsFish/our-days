@@ -10,6 +10,7 @@ import { checkCapacity, mediaRoot, uploadLimit } from "./media";
 export type SpecialMaterial = {
   id: string; title: string; original_ext: "jpg" | "png" | "webp";
   original_bytes: string; width: number; height: number; created_at: string;
+  sends?: { id: string; send_at: string; status: string; error_code: string | null }[];
 };
 
 export function specialMediaPath(id: string, suffix: string) {
