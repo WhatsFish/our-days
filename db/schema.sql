@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS imports (
   created_at timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz
 );
+CREATE TABLE IF NOT EXISTS special_materials (
+  id uuid PRIMARY KEY,
+  sha256 text NOT NULL UNIQUE,
+  title text NOT NULL,
+  original_ext text NOT NULL CHECK (original_ext IN ('jpg','png','webp')),
+  original_bytes bigint NOT NULL,
+  preview_bytes bigint NOT NULL,
+  width integer NOT NULL,
+  height integer NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS metadata_place text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS gps_place_guess text NOT NULL DEFAULT '';
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;

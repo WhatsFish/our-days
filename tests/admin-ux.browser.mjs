@@ -46,6 +46,7 @@ try {
     queue: [photos[0]], health: { healthy: true, reason: "Test worker healthy" },
   };
   let generated = 0, saved = null, lastFacts = "", lastContext = null;
+  const specialItems = [];
   await page.route("**/our-days/api/**", async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.split("/api/")[1];
@@ -53,6 +54,15 @@ try {
     if (endpoint === "session") body = { role: "admin" };
     else if (endpoint === "editions") body = [];
     else if (endpoint === "admin") body = dashboard;
+    else if (endpoint === "special") body = { items: specialItems, total: specialItems.length, page: 1 };
+    else if (endpoint === "special/upload") {
+      await delay(250);
+      const item = { id: "00000000-0000-4000-8000-000000000999", title: "Synthetic birthday artwork",
+        original_ext: "png", original_bytes: "100", width: 100, height: 150, created_at: new Date().toISOString() };
+      specialItems.push(item);
+      await route.fulfill({ status: 201, json: { id: item.id, duplicate: false } });
+      return;
+    }
     else if (endpoint === "queue/settings") {
       dashboard.settings.queue_loop = route.request().postDataJSON().loop;
       body = { ok: true };
@@ -67,7 +77,7 @@ try {
       const number = Number(url.searchParams.get("page") || 1);
       body = { photos: matching.slice((number - 1) * 20, number * 20), total: matching.length, page: number };
     } else if (endpoint.startsWith("photo/")) body = photos.find(photo => photo.id === endpoint.slice(6));
-    else if (endpoint.startsWith("media/")) {
+    else if (endpoint.startsWith("media/") || endpoint.startsWith("special/")) {
       await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#d6e7e1"/><circle cx="300" cy="280" r="130" fill="#fffefa"/><text x="300" y="550" text-anchor="middle" font-size="32">Synthetic photo</text></svg>' });
       return;
     } else if (endpoint === "ai") {
@@ -179,6 +189,18 @@ try {
   const geometry = await editor.evaluate(node => ({ width: node.getBoundingClientRect().width, scroll: node.scrollWidth, client: node.clientWidth }));
   assert.ok(geometry.width <= 390 && geometry.scroll <= geometry.client + 1, "Mobile editor must not overflow horizontally");
   if (process.env.UX_SCREENSHOT_PATH) await page.screenshot({ path: process.env.UX_SCREENSHOT_PATH });
+  await page.goto(`${origin}/our-days/special`);
+  await page.getByRole("heading", { name: "上传特殊素材", exact: true }).waitFor();
+  await page.getByLabel("素材名称", { exact: true }).fill("Synthetic birthday artwork");
+  await page.getByLabel("选择成品图片", { exact: true }).setInputFiles({
+    name: "birthday.png", mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHn0AAAAASUVORK5CYII=", "base64"),
+  });
+  await page.getByRole("button", { name: "保存到特殊素材库", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "上传成功，成品原图已保存到特殊素材库" }).waitFor();
+  await page.getByText("Synthetic birthday artwork", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "下载原文件" }).count(), 1);
+  assert.equal(dashboard.editions.length, 0, "Special upload must not create a daily edition");
   assert.deepEqual(errors, []);
   console.log("Admin UX browser checks passed: 103-photo pagination/search, focused mobile editor, current-facts AI progress/autofill/undo/failure, explicit save/approval, unsaved guards, fixed GLM prices and cap.");
 } finally {

@@ -65,6 +65,23 @@ Timezone defaults to Asia/Shanghai and is an advanced option, not a separate
 schedule. Weather/calendar/editorial notes and AI credentials are optional.
 The reader's archive remains a separate authenticated view, not read tracking.
 
+### Special finished artwork
+
+`/our-days/special` is a separate administrator-only upload page for birthday
+greetings and other finished JPEG/PNG/WebP artwork (25MiB per image). It uses the
+existing administrator login and shows upload progress, success/errors, saved
+titles, private previews and original-file downloads. Originals are retained
+byte for byte; previews strip metadata and keep the aspect ratio, without
+decorative borders or added captions.
+
+Records live in `special_materials`, files in `MEDIA_ROOT/special/`, independently
+of daily photos/imports/editions. Content hashes prevent duplicate uploads.
+Files share the media quota and are included in the existing encrypted media
+backup. Readers and unauthenticated requests cannot access the private files.
+Uploading only stores artwork: it does not schedule a special send, enter the
+daily queue, trigger AI or change the daily send time. A midnight greeting must
+be explicitly scheduled separately once the actual uploaded artwork is confirmed.
+
 ## Private launch and identity
 
 The public product name is **鱼羊日记**. Technical repository, database, container

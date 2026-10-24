@@ -108,6 +108,7 @@ export function Workspace() {
       <nav className="tabs" aria-label="工作区">
         {(role === "admin" ? [["status", "运行状态"], ["library", "队列与素材"], ["history", "发送记录"], ["settings", "API 与系统配置"]] : [["letters", "照片记录"]]).map(([key, name]) =>
           <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
+        {role === "admin" && <a href={`${base}/special`}>特殊素材</a>}
         <button className="quiet refresh" disabled={busy} onClick={() => void perform(async () => {}, "已刷新")}>刷新</button>
       </nav>
       {tab === "letters" && <LetterBox editions={editions} busy={busy} favorite={edition => perform(async () => {

@@ -13,6 +13,7 @@ import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../.
 import { lookupPhotoPlace } from "../../../lib/photo-place";
 import { READY_PHOTO_SQL, READY_PHOTOS_BASE_SQL } from "../../../lib/photo-queue";
 import { OPERATOR_COUNTS_SQL, resourceStatus, workerHealth, type OperatorCounts } from "../../../lib/operator-status";
+import { specialMediaPath, uploadSpecialMaterial } from "../../../lib/special-media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,28 @@ export async function GET(request: NextRequest, context: Context) {
       return json(rows);
     }
     await requireRole(request, true);
+    if (route === "special") {
+      const requested = z.coerce.number().int().min(1).max(100000).parse(request.nextUrl.searchParams.get("page") ?? 1);
+      const [count] = await query<{ total: number }>("SELECT count(*)::int AS total FROM special_materials");
+      const page = Math.min(requested, Math.max(1, Math.ceil(count.total / 20)));
+      const items = await query(`SELECT id,title,original_ext,original_bytes,width,height,created_at
+        FROM special_materials ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $1`, [(page - 1) * 20]);
+      return json({ items, page, total: count.total });
+    }
+    if (params.path[0] === "special" && params.path.length === 3) {
+      const id = uuid.parse(params.path[1]);
+      const size = z.enum(["preview", "original"]).parse(params.path[2]);
+      const [item] = await query<{ original_ext: string }>("SELECT original_ext FROM special_materials WHERE id=$1", [id]);
+      if (!item) throw new AppError(404, "not_found", "特殊素材不存在");
+      const ext = size === "preview" ? "jpg" : item.original_ext;
+      return new NextResponse(new Uint8Array(await readFile(specialMediaPath(id, size === "preview" ? "preview.jpg" : `original.${ext}`))), {
+        headers: {
+          "Content-Type": ext === "jpg" ? "image/jpeg" : `image/${ext}`,
+          "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+          ...(size === "original" ? { "Content-Disposition": `attachment; filename="special-${id}.${ext}"` } : {}),
+        },
+      });
+    }
     if (route === "photos") {
       const params = z.object({
         page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -206,13 +229,16 @@ export async function POST(request: NextRequest, context: Context) {
       return json({ ok: true });
     }
     await requireRole(request, true);
-    if (route === "upload") {
+    if (route === "upload" || route === "special/upload") {
       const bytes = await boundedBody(request, uploadLimit + 64 * 1024);
       const form = await new Request(request.url, {
         method: "POST", headers: { "Content-Type": request.headers.get("content-type") ?? "" }, body: new Uint8Array(bytes),
       }).formData();
       const file = form.get("file");
       if (!(file instanceof File)) throw new AppError(400, "file", "请选择图片或 ZIP");
+      if (route === "special/upload") {
+        return json(await uploadSpecialMaterial(Buffer.from(await file.arrayBuffer()), String(form.get("title") || file.name)), 201);
+      }
       const id = await enqueueUpload(Buffer.from(await file.arrayBuffer()), file.name.toLowerCase().endsWith(".zip"));
       return json({ id }, 202);
     }

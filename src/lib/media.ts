@@ -25,10 +25,15 @@ export async function storageBytes() {
   let bytes = 0;
   for (const file of await readdir(mediaRoot(), { withFileTypes: true })) {
     if (file.isFile()) bytes += (await stat(path.join(mediaRoot(), file.name))).size;
+    if (file.isDirectory() && file.name === "special") {
+      for (const special of await readdir(path.join(mediaRoot(), "special"), { withFileTypes: true })) {
+        if (special.isFile()) bytes += (await stat(path.join(mediaRoot(), "special", special.name))).size;
+      }
+    }
   }
   return bytes;
 }
-async function checkCapacity(bytes: number) {
+export async function checkCapacity(bytes: number) {
   const quota = Number(process.env.MEDIA_QUOTA_MB ?? 200) * 1024 * 1024;
   if (!Number.isFinite(quota) || quota <= 0) throw new AppError(503, "quota_config", "存储额度配置无效");
   if ((await storageBytes()) + bytes > quota) throw new AppError(507, "quota", "照片存储额度不足，请释放空间或扩容");
