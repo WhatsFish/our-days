@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { AppError } from "./domain";
+import type { WecomRecipientResult } from "./wecom-image.mjs";
 
 const sent = z.object({ code: z.number(), data: z.unknown().optional() });
-export type SendResult = { status: "accepted" | "failed" | "unknown"; recordId?: string; errorCode?: string };
+export type SendResult = {
+  status: "accepted" | "failed" | "unknown"; recordId?: string; errorCode?: string; recipients?: WecomRecipientResult[];
+};
 export async function sendNotice(editionId: string, fetcher: typeof fetch = fetch): Promise<SendResult> {
   if (process.env.PUSH_ENABLED !== "true") throw new AppError(409, "push_disabled", "真实推送未启用");
   const token = process.env.PUSHPLUS_TOKEN, to = process.env.PUSHPLUS_TO;

@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS favorites (
 );
 ALTER TABLE deliveries DROP CONSTRAINT IF EXISTS deliveries_channel_check;
 ALTER TABLE deliveries ADD CONSTRAINT deliveries_channel_check CHECK (channel IN ('wechat-test','pushplus','wecom'));
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS recipient_results jsonb;
 CREATE TABLE IF NOT EXISTS wechat_receipts (
   record_id text PRIMARY KEY,
   status text NOT NULL CHECK (status IN ('delivered','failed')),

@@ -7,10 +7,11 @@ import { UploadPanel } from "./upload-panel";
 import { PhotoLibrary } from "./photo-library";
 import { aiPricing, GLM_FLASH_MODEL, supportsPhotoCaption } from "../lib/ai-policy";
 import type { OperatorCounts, Resources } from "../lib/operator-status";
+import type { WecomRecipientResult } from "../lib/wecom-image.mjs";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
-type Delivery = { id: string; edition_id: string; day: string; status: string; error_code: string | null; attempts: number };
+type Delivery = { id: string; edition_id: string; day: string; status: string; error_code: string | null; attempts: number; recipient_results?: WecomRecipientResult[] | null };
 type Dashboard = {
   editions: Edition[]; imports: ImportJob[]; deliveries: Delivery[];
   settings: Settings; worker: { last_tick: string | null; error_code: string | null } | null;
@@ -318,7 +319,9 @@ function SendHistory({ dashboard: d, busy, perform }: { dashboard: Dashboard; bu
       return <article key={edition.id}>
         <div className="row">
           <img className="mini" src={`${base}/api/media/${edition.photo_id}/thumb`} alt="" />
-          <div><strong>{edition.day}</strong><p className="muted">{delivery ? labels[delivery.status] : edition.status === "scheduled" ? "已指定日期，等待任务" : edition.status === "cancelled" ? "已取消" : "内容已生成，尚无投递记录"}{delivery?.error_code ? ` · ${delivery.error_code}` : ""}</p></div>
+          <div><strong>{edition.day}</strong><p className="muted">{delivery ? labels[delivery.status] : edition.status === "scheduled" ? "已指定日期，等待任务" : edition.status === "cancelled" ? "已取消" : "内容已生成，尚无投递记录"}{delivery?.error_code ? ` · ${delivery.error_code}` : ""}</p>
+            {delivery?.recipient_results?.map(recipient => <p key={recipient.userId} className="muted">{recipient.userId}：{labels[recipient.status]}</p>)}
+          </div>
           {edition.snapshot && <button className="quiet" onClick={() => setPreviewId(previewId === edition.id ? null : edition.id)}>查看内容</button>}
           {edition.status === "scheduled" && <button className="quiet" disabled={busy} onClick={() => void perform(async () => { await api("cancel", { id: edition.id }); }, "已取消指定日期内容")}>取消</button>}
           {delivery?.status === "failed" && delivery.attempts < 3 && <button className="quiet" disabled={busy} onClick={() => {

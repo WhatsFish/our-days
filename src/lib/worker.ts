@@ -77,8 +77,9 @@ export async function tick() {
         const result = delivery.channel === "wecom" ? await sendPhotoCard(delivery.snapshot, delivery.day) : delivery.channel === "wechat-test"
           ? await sendWechatNotice(delivery.edition_id, delivery.day)
           : await sendNotice(delivery.edition_id);
-        await query("UPDATE deliveries SET status=$2,record_id=$3,error_code=$4,updated_at=now() WHERE id=$1",
-          [delivery.id, result.status, result.recordId ?? null, result.errorCode ?? null]);
+        await query("UPDATE deliveries SET status=$2,record_id=$3,error_code=$4,recipient_results=$5::jsonb,updated_at=now() WHERE id=$1",
+          [delivery.id, result.status, result.recordId ?? null, result.errorCode ?? null,
+            result.recipients ? JSON.stringify(result.recipients) : null]);
       }
     }
     const accepted = await query<{ id: string; record_id: string }>(

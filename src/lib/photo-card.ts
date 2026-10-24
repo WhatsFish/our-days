@@ -70,10 +70,12 @@ export async function sendPhotoCard(snapshot: Snapshot, day: string): Promise<Se
       corpId: process.env.WECOM_CORP_ID, secret: process.env.WECOM_APP_SECRET,
       agentId: Number(process.env.WECOM_AGENT_ID), userId: process.env.WECOM_USER_ID,
     });
-    return { status: "accepted", recordId: result.msgid };
+    return { status: "accepted", recordId: result.msgid, recipients: result.recipients };
   } catch (error) {
     console.warn("[our-days] wecom_image_send_failed");
     return { status: error instanceof WecomSendError && error.unknown ? "unknown" : "failed",
+      recipients: error instanceof WecomSendError ? error.recipients : undefined,
+      recordId: error instanceof WecomSendError ? error.recordId : undefined,
       errorCode: error instanceof AppError ? error.code : error instanceof WecomSendError && error.unknown ? "wecom_unknown" : "wecom_rejected" };
   }
 }

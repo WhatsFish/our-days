@@ -7,7 +7,7 @@ import { buildSnapshot } from "../src/lib/content";
 import { localDay, type Photo, type Settings } from "../src/lib/domain";
 import { renderPhotoCard } from "../src/lib/photo-card";
 import { READY_PHOTOS_BASE_SQL } from "../src/lib/photo-queue";
-import { sendWecomImage, WecomSendError } from "../src/lib/wecom-image.mjs";
+import { sendWecomImage, WecomSendError, type WecomRecipientResult } from "../src/lib/wecom-image.mjs";
 
 const one = process.argv.includes("--send-one");
 const count = one ? 1 : 2;
@@ -23,7 +23,7 @@ if (send && (!stateFile || !path.isAbsolute(stateFile))) throw new Error("Provid
 if (process.env.PUSH_CHANNEL !== "wecom") throw new Error("Expected the configured WeCom channel");
 const client = await pool.connect();
 let locked = false;
-type Item = { photo_id: string; number: number; sha256: string; width: number; height: number; bytes: number; status: string; record_id?: string; error_code?: string; submitted_at?: string };
+type Item = { photo_id: string; number: number; sha256: string; width: number; height: number; bytes: number; status: string; record_id?: string; error_code?: string; submitted_at?: string; recipients?: WecomRecipientResult[] };
 const state: { type: string; label: string; created_at: string; changes_daily_queue: boolean; items: Item[] } = {
   type: "manual_material_e2e", label, created_at: new Date().toISOString(), changes_daily_queue: false, items: [],
 };
@@ -66,10 +66,15 @@ try {
           agentId: Number(process.env.WECOM_AGENT_ID), userId: process.env.WECOM_USER_ID,
         });
         state.items[index].status = "accepted"; state.items[index].record_id = result.msgid;
+        state.items[index].recipients = result.recipients;
         await save();
         console.log(`E2E ${index + 1}/${count} accepted by WeCom; actual phone receipt still unconfirmed`);
       } catch (error) {
         state.items[index].status = error instanceof WecomSendError && error.unknown ? "unknown" : "failed";
+        if (error instanceof WecomSendError) {
+          state.items[index].recipients = error.recipients;
+          state.items[index].record_id = error.recordId;
+        }
         state.items[index].error_code = error instanceof WecomSendError && error.unknown ? "submission_unknown" : "provider_rejected";
         await save();
         throw new Error("Submission failed or uncertain; batch stopped with no automatic retry");

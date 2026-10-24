@@ -42,8 +42,9 @@ with optional WeChat notification. No personal content is included in this repos
   eligible photos return to the tail, ordered by last published date and then
   import order, so unseen photos precede repeats.
 - The current archive shows the newest 366 editions; the photo library supports
-  server-side search and 20-row pagination. This is a single-recipient application.
-- AI conversations, video, multi-recipient delivery and automated offsite
+  server-side search and 20-row pagination. WeCom supports one or two explicitly
+  configured members receiving the same daily card.
+- AI conversations, video, independent per-user feeds and automated offsite
   cloud backups are not implemented.
 
 ## Runtime
@@ -81,8 +82,10 @@ For a private two-person launch:
   WeChat contact or following the plugin alone is insufficient.
 - Bind her ordinary WeChat through **My Enterprise / WeChat Plugin**, and enable
   enterprise-message receipt without requiring the WeCom client for viewing.
-- Explicitly switch the single configured `WECOM_USER_ID` to her member UserID,
-  preserving secrets; do not assume adding a member redirects delivery.
+- Set `WECOM_USER_ID` to her member UserID, or retain the existing member and append
+  `|partner_member_id` for identical delivery to both, preserving secrets. The
+  allowlist is limited to two distinct explicit members, never `@all`, departments
+  or tags. Adding a member alone does not update the delivery target.
   The worker reads the separate WeCom env file on each new invocation.
 - With her approval, perform one manual receipt check on her phone, then confirm
   one actual 08:00 scheduled delivery. API acceptance alone is not phone receipt.
@@ -93,8 +96,18 @@ For a private two-person launch:
   photos and a separate encrypted off-VM backup/key copy: same-disk backups
   do not protect against loss of this VM.
 
-This is a private single-recipient product, not a multi-tenant public service.
+This is a private shared-diary product, not a multi-tenant public service.
 Public signup/payment and multi-user data isolation require separate design.
+
+Both members use the same photos, queue, captions and 08:00 schedule. The sender
+validates both memberships before uploading, renders/uploads once, and submits
+one `touser` list with the same media ID. Daily delivery records retain
+`recipient_results` for each account; the administrator history displays these
+results. A partially accepted group is recorded as `unknown` overall to block
+whole-message retry and automatic queue recycling; accepted recipients must not
+be sent the image again automatically. HTTP/transport ambiguity also prevents
+automatic retries. Platform acceptance is not confirmation of either phone's
+plugin receipt. Manual preview scripts use the same recipient allowlist.
 
 In daily mode, one database edition per local date prevents repeat ticks or
 concurrent workers from creating multiple messages. The approved stock is FIFO
@@ -370,8 +383,8 @@ identity verification or domain ownership requirement.
 `scripts/wecom-image-probe.mjs DEMO.png --send-once` is a minimal manual probe.
 It expects exported private `WECOM_CORP_ID`, `WECOM_APP_SECRET`,
 `WECOM_AGENT_ID`, `WECOM_USER_ID` variables and `PUSH_ENABLED=false`. It verifies
-an enabled application and active member, uploads a demo, and submits exactly
-one image to one member, without a fallback or automatic retry. Invalid or
+an enabled application and all configured active members, uploads a demo, and submits exactly
+one image to the one- or two-member allowlist, without a fallback or automatic retry. Invalid or
 unlicensed recipient results fail explicitly even if `errcode` is zero.
 Acceptance is not receipt: verify the picture in **ordinary WeChat**, not only in
 the WeCom client, before changing the daily sender. Mock-only tests run with

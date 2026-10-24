@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rmdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import { NextRequest } from "next/server";
+import { POST } from "../src/app/api/[...path]/route";
 import { pool } from "../src/lib/db";
 import { tick } from "../src/lib/worker";
 import { localDay } from "../src/lib/domain";
@@ -17,10 +19,11 @@ const dir = await mkdtemp(path.join(tmpdir(), "our-days-daily-"));
 Object.assign(process.env, {
   MEDIA_ROOT: dir, PUSH_CHANNEL: "wecom", PUSH_ENABLED: "true",
   WECOM_CORP_ID: "wwSynthetic", WECOM_APP_SECRET: "synthetic-secret",
-  WECOM_AGENT_ID: "100001", WECOM_USER_ID: "operator",
+  WECOM_AGENT_ID: "100001", WECOM_USER_ID: "operator|partner",
 });
 const p1 = randomUUID(), p2 = randomUUID(), p3 = randomUUID();
 let sends = 0;
+let partial = false;
 const originalFetch = globalThis.fetch;
 try {
   await pool.query("TRUNCATE photos,editions,deliveries,favorites,imports,worker_state CASCADE");
@@ -37,7 +40,7 @@ try {
     assert.equal(url.hostname, "qyapi.weixin.qq.com", "No personal content may be sent elsewhere");
     if (url.pathname.endsWith("/gettoken")) return Response.json({ errcode: 0, access_token: "fake" });
     if (url.pathname.endsWith("/agent/get")) return Response.json({ errcode: 0, agentid: 100001, close: 0 });
-    if (url.pathname.endsWith("/user/get")) return Response.json({ errcode: 0, userid: "operator", status: 1 });
+    if (url.pathname.endsWith("/user/get")) return Response.json({ errcode: 0, userid: url.searchParams.get("userid"), status: 1 });
     if (url.pathname.endsWith("/media/upload")) {
       assert.ok(init?.body instanceof FormData);
       const file = init.body.get("media");
@@ -48,11 +51,11 @@ try {
     }
     assert.equal(url.pathname, "/cgi-bin/message/send");
     const data = JSON.parse(String(init?.body));
-    assert.equal(data.touser, "operator");
+    assert.equal(data.touser, "operator|partner");
     assert.equal(data.msgtype, "image");
     assert.equal(data.enable_duplicate_check, 1);
     sends++;
-    return Response.json({ errcode: 0, msgid: "fake-daily-message" });
+    return Response.json({ errcode: 0, msgid: "fake-daily-message", invaliduser: partial ? "partner" : "" });
   };
   await tick();
   assert.equal((await pool.query("SELECT id FROM editions")).rowCount, 0);
@@ -69,6 +72,7 @@ try {
   assert.equal(delivery.channel, "wecom");
   assert.equal(delivery.status, "accepted");
   assert.equal(delivery.attempts, 1);
+  assert.deepEqual(delivery.recipient_results, [{ userId: "operator", status: "accepted" }, { userId: "partner", status: "accepted" }]);
   assert.equal(sends, 1);
   await tick(); assert.equal(sends, 1);
   assert.equal((await pool.query(READY_PHOTO_SQL)).rows[0].id, p2);
@@ -84,6 +88,24 @@ try {
     VALUES($1,current_date+1,$2,'Reserved future photo',now()+interval '1 day')`, [randomUUID(), p2]);
   await assert.rejects(tick(), /待发送照片用完/);
   assert.equal(sends, 1);
+  await pool.query("DELETE FROM editions WHERE status='scheduled'");
+  partial = true;
+  await tick();
+  const secondDelivery = (await pool.query("SELECT d.* FROM deliveries d JOIN editions e ON d.edition_id=e.id WHERE e.photo_id=$1", [p2])).rows[0];
+  assert.equal(secondDelivery.status, "unknown", "Partial acceptance must not be retryable as a whole");
+  assert.deepEqual(secondDelivery.recipient_results, [{ userId: "operator", status: "accepted" }, { userId: "partner", status: "failed" }]);
+  assert.equal(sends, 2);
+  await tick(); assert.equal(sends, 2, "Partial acceptance must not resend to the already accepted member");
+  const token = "d".repeat(64);
+  process.env.PUBLIC_URL = "https://example.com/our-days";
+  await pool.query("INSERT INTO sessions VALUES($1,'admin',now()+interval '1 hour') ON CONFLICT DO NOTHING",
+    [createHash("sha256").update(token).digest("hex")]);
+  const retry = await POST(new NextRequest("https://example.com/our-days/api/delivery/retry", {
+    method: "POST",
+    headers: { Origin: "https://example.com", Cookie: `our_days_session=${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: secondDelivery.id, confirm: true }),
+  }), { params: Promise.resolve({ path: ["delivery", "retry"] }) });
+  assert.equal(retry.status, 409, "Admin retry API must reject partially accepted group messages");
   console.log("Daily workflow passed: pause, next scheduled time, FIFO approved-only selection, one card/day, actual rendering, mocked WeCom dispatch, no repeats, future reservations and empty-stock errors.");
 } finally {
   globalThis.fetch = originalFetch;
