@@ -47,11 +47,27 @@ try {
   };
   let generated = 0, saved = null, lastFacts = "", lastContext = null;
   const specialItems = [];
+  let signedIn = false;
+  let passwordSet = false;
   await page.route("**/our-days/api/**", async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.split("/api/")[1];
     let body;
-    if (endpoint === "session") body = { role: "admin" };
+    if (endpoint === "session") body = { role: signedIn ? "admin" : null };
+    else if (endpoint === "login") {
+      const input = route.request().postDataJSON();
+      assert.equal(input.username, "admin");
+      assert.equal(input.password, "Synthetic long password 123!");
+      signedIn = true;
+      body = { role: "admin" };
+    } else if (endpoint === "admin/password") {
+      const input = route.request().postDataJSON();
+      assert.equal(input.token, "a".repeat(64));
+      assert.equal(input.password, "Synthetic long password 123!");
+      passwordSet = true;
+      signedIn = false;
+      body = { ok: true };
+    }
     else if (endpoint === "editions") body = [];
     else if (endpoint === "admin") body = dashboard;
     else if (endpoint === "special") body = { items: specialItems, total: specialItems.length, page: 1 };
@@ -95,6 +111,9 @@ try {
     await route.fulfill({ json: body });
   });
   await page.goto(`${origin}/our-days`);
+  assert.equal(await page.getByLabel("用户名", { exact: true }).inputValue(), "admin");
+  await page.getByLabel("密码", { exact: true }).fill("Synthetic long password 123!");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("button", { name: "队列与素材", exact: true }).click();
   await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
   const loop = page.getByRole("checkbox", { name: "循环队列：全部照片发送一轮后，从头继续" });
@@ -201,6 +220,18 @@ try {
   await page.getByText("Synthetic birthday artwork", { exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "下载原文件" }).count(), 1);
   assert.equal(dashboard.editions.length, 0, "Special upload must not create a daily edition");
+  await page.goto(`${origin}/our-days/password#token=${"a".repeat(64)}`);
+  await page.getByLabel("新密码", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).hash, "", "Setup credential must be removed from visible URL history");
+  await page.getByLabel("新密码", { exact: true }).fill("Synthetic long password 123!");
+  await page.getByLabel("再次输入新密码", { exact: true }).fill("Different long password");
+  await page.getByRole("button", { name: "保存密码", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "两次输入的密码不一致" }).waitFor();
+  assert.equal(passwordSet, false);
+  await page.getByLabel("再次输入新密码", { exact: true }).fill("Synthetic long password 123!");
+  await page.getByRole("button", { name: "保存密码", exact: true }).click();
+  await page.getByRole("link", { name: "前往登录并管理照片" }).waitFor();
+  assert.equal(passwordSet, true);
   assert.deepEqual(errors, []);
   console.log("Admin UX browser checks passed: 103-photo pagination/search, focused mobile editor, current-facts AI progress/autofill/undo/failure, explicit save/approval, unsaved guards, fixed GLM prices and cap.");
 } finally {

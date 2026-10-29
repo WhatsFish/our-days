@@ -10,6 +10,16 @@ CREATE TABLE IF NOT EXISTS login_limits (
   started_at timestamptz NOT NULL DEFAULT now(),
   attempts integer NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS admin_credentials (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  password_hash text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS admin_password_tokens (
+  token_hash text PRIMARY KEY,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
 CREATE TABLE IF NOT EXISTS photos (
   id uuid PRIMARY KEY,
   sha256 text NOT NULL UNIQUE,

@@ -3,7 +3,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { query, transaction } from "../../../lib/db";
-import { checkOrigin, cookieName, login, requireRole, roleFor, tokenHash } from "../../../lib/auth";
+import { checkOrigin, cookieName, login, requireRole, roleFor, tokenHash, setAdminPassword } from "../../../lib/auth";
 import { AppError, editionInput, photoEdit, publicError, settingsInput, uuid, type Settings } from "../../../lib/domain";
 import { enqueueUpload, mediaPath, storageBytes, uploadLimit } from "../../../lib/media";
 import { suggestCaption } from "../../../lib/ai";
@@ -206,9 +206,17 @@ export async function POST(request: NextRequest, context: Context) {
       return new NextResponse("success", { headers: { "Content-Type": "text/plain" } });
     }
     checkOrigin(request);
+    if (route === "admin/password") {
+      const body = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().min(12).max(256) }).parse(await parseJson(request));
+      await setAdminPassword(body.token, body.password);
+      const response = json({ ok: true });
+      response.cookies.set(cookieName, "", { path: "/our-days", maxAge: 0 });
+      return response;
+    }
     if (route === "login") {
-      const body = z.object({ role: z.enum(["admin", "reader"]), password: z.string().min(1).max(256) }).parse(await parseJson(request));
-      const session = await login(body.role, body.password);
+      const body = z.object({ role: z.enum(["admin", "reader"]).default("admin"), username: z.string().max(80).optional(),
+        password: z.string().min(1).max(256) }).parse(await parseJson(request));
+      const session = await login(body.role, body.password, body.username ?? body.role);
       const response = json({ role: body.role });
       response.cookies.set(cookieName, session.token, {
         httpOnly: true, secure: new URL(process.env.PUBLIC_URL!).protocol === "https:",

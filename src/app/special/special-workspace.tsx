@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { SpecialMaterial } from "../../lib/special-media";
+import { AdminLogin } from "../admin-login";
 
 const base = "/our-days";
 const sendLabels: Record<string, string> = {
@@ -46,9 +47,16 @@ export function SpecialWorkspace() {
   }, [role, refresh]);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const password = String(new FormData(event.currentTarget).get("password") ?? "");
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") ?? "");
     setBusy(true); setError("");
-    try { await api("login", { role: "admin", password }); setRole("admin"); }
+    try {
+      const result = await api<{ role: string }>("login", {
+        role: String(form.get("role")), username: String(form.get("username") || "") || undefined, password,
+      });
+      setRole(result.role);
+      if (result.role !== "admin") setError("特殊素材仅供管理员访问，请使用 admin 登录");
+    }
     catch (error) { setError(error instanceof Error ? error.message : "登录失败"); }
     finally { setBusy(false); }
   }
@@ -95,9 +103,7 @@ export function SpecialWorkspace() {
     {error && <p className="alert error" role="alert">{error}</p>}
     {notice && <p className="alert" role="status">{notice}</p>}
     {loading ? <p role="status">正在检查登录状态…</p> : role !== "admin" ?
-      <section className="card login"><h2>管理员登录</h2><p className="muted">使用现有管理员配对码，收信人不能访问这些素材。</p>
-        <form onSubmit={login}><label>管理员配对码<input name="password" type="password" autoComplete="current-password" required maxLength={256} /></label>
-          <button disabled={busy}>{busy ? "登录中…" : "登录特殊素材库"}</button></form></section> : <>
+      <AdminLogin busy={busy} submit={event => { void login(event); }} /> : <>
       <section className="card"><h2>上传特殊素材</h2>
         <p className="muted">支持静态 JPEG / PNG / WebP，单张最多 25MB。原文件完整保留，预览不加边框、不加文案。这里仅保存素材，定时发送需另行安排。</p>
         <form onSubmit={upload}><fieldset disabled={busy}>

@@ -8,6 +8,7 @@ import { PhotoLibrary } from "./photo-library";
 import { aiPricing, GLM_FLASH_MODEL, supportsPhotoCaption } from "../lib/ai-policy";
 import type { OperatorCounts, Resources } from "../lib/operator-status";
 import type { WecomRecipientResult } from "../lib/wecom-image.mjs";
+import { AdminLogin } from "./admin-login";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -84,9 +85,9 @@ export function Workspace() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     await perform(async () => {
-      const session = await api<{ role: Role }>("login", { role: value(form, "role"), password: value(form, "password") });
+      const session = await api<{ role: Role }>("login", { role: value(form, "role"), username: value(form, "username") || undefined, password: value(form, "password") });
       setRole(session.role); setTab(session.role === "admin" ? "status" : "letters"); await refresh(session.role);
-    }, "已安全配对");
+    }, "登录成功");
   }
   if (loading) return <main className="shell"><h1>加载中…</h1></main>;
   return <main className="shell">
@@ -97,14 +98,7 @@ export function Workspace() {
     </header>
     {error && <div className="alert error" role="alert">{error}</div>}
     {notice && <div className="alert" role="status">{notice}</div>}
-    {!role ? <section className="login card">
-      <h2>登录</h2>
-      <form onSubmit={signIn}>
-        <label>身份<select name="role"><option value="reader">收信人</option><option value="admin">管理照片与来信</option></select></label>
-        <label>配对码<input name="password" type="password" autoComplete="current-password" required maxLength={256} /></label>
-        <button disabled={busy}>登录</button>
-      </form>
-    </section> : <>
+    {!role ? <AdminLogin busy={busy} submit={event => { void signIn(event); }} /> : <>
       <nav className="tabs" aria-label="工作区">
         {(role === "admin" ? [["status", "运行状态"], ["library", "队列与素材"], ["history", "发送记录"], ["settings", "API 与系统配置"]] : [["letters", "照片记录"]]).map(([key, name]) =>
           <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}

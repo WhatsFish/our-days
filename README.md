@@ -65,6 +65,25 @@ Timezone defaults to Asia/Shanghai and is an advanced option, not a separate
 schedule. Weather/calendar/editorial notes and AI credentials are optional.
 The reader's archive remains a separate authenticated view, not read tracking.
 
+### Administrator password
+
+The default login is username **admin** and the administrator's own password,
+usable from any device. Sessions last seven days; a forgotten/expired session
+does not require a new pairing code. Reader access remains separate.
+Run `scripts/admin-password-link.ts` with the worker's environment to issue a
+24-hour, one-use setup/recovery link. Give that link only to the operator.
+Its random credential is in the URL fragment (not web access logs); the setup
+page removes it from browser history and submits it only in the same-origin
+password request. Passwords require at least 12 characters, are salted/scrypt
+hashed, never printed, and replace the old environment admin pairing code.
+Setting a password revokes old admin sessions and outstanding recovery links,
+without changing reader sessions, photos, API credentials or delivery settings.
+Until the first password is set, the existing admin code remains valid.
+
+In the cycling queue, unseen approved uploads sort before every previously sent
+photo, even mid-cycle. No round boundary delays them. Only explicit pinned
+photos override this ordering; imported material must still be confirmed.
+
 ### Special finished artwork
 
 `/our-days/special` is a separate administrator-only upload page for birthday

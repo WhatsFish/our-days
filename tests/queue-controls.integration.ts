@@ -112,6 +112,8 @@ try {
   await pool.query("INSERT INTO photos(id,sha256,original_ext,original_bytes,caption,approved) VALUES($1::uuid,$1::text,'jpg',1,'New synthetic caption',true)", [fresh]);
   await writeFile(path.join(media, `${fresh}.display.webp`), image);
   assert.equal((await queue())[0], fresh, "New unseen materials precede repeats");
+  assert.equal(await nextDay(), fresh, "The next actual daily send must use new material even after an entire cycle");
+  assert.equal(sends, 6);
   const beforeSnapshot = (await pool.query("SELECT snapshot FROM editions ORDER BY day LIMIT 1")).rows[0].snapshot;
   await pool.query("UPDATE photos SET caption='Updated synthetic caption' WHERE id=$1", [c]);
   assert.deepEqual((await pool.query("SELECT snapshot FROM editions ORDER BY day LIMIT 1")).rows[0].snapshot, beforeSnapshot);
@@ -124,7 +126,7 @@ try {
   assert.equal((await request("queue/pin", { id: c, pinned: true })).status, 409);
   assert.equal((await pool.query(OPERATOR_COUNTS_SQL)).rows[0].ready, 1);
   await pool.query("UPDATE editions SET status='cancelled' WHERE id=$1", [reserved]);
-  assert.deepEqual(await queue(), [fresh, c], "Cancelling reservation restores eligibility");
+  assert.deepEqual(await queue(), [c, fresh], "Cancelling reservation restores eligibility ahead of the more recently sent new photo");
   await pool.query("UPDATE settings SET paused=true,queue_loop=false");
   console.log("Queue controls passed: admin-only pin/unpin, one-shot latest pin, real round-robin ticks with retained history, one/day concurrency, unseen-first, mode toggle, shared filters/counts/monitoring, failed/unknown/future safety and unchanged settings.");
 } finally {
