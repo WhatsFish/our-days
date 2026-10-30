@@ -207,7 +207,7 @@ export async function POST(request: NextRequest, context: Context) {
     }
     checkOrigin(request);
     if (route === "admin/password") {
-      const body = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().min(12).max(256) }).parse(await parseJson(request));
+      const body = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().max(256) }).parse(await parseJson(request));
       await setAdminPassword(body.token, body.password);
       const response = json({ ok: true });
       response.cookies.set(cookieName, "", { path: "/our-days", maxAge: 0 });

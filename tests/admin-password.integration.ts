@@ -14,7 +14,7 @@ Object.assign(process.env, {
   ADMIN_PASSWORD_HASH: hashPassword("synthetic-legacy-code"),
   READER_PASSWORD_HASH: hashPassword("synthetic-reader-code"),
 });
-const password = "Synthetic private passphrase 123!";
+const password = "Abcdefg12";
 async function post(route: string, data: unknown, origin = "https://example.com") {
   return POST(new NextRequest(`https://example.com/our-days/api/${route}`, {
     method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(data),
@@ -36,6 +36,10 @@ try {
   const otherToken = await freshToken();
   const expired = await freshToken(true);
   assert.equal((await post("admin/password", { token, password: "short" })).status, 400);
+  for (const invalid of ["Abcdef12", "123456789", "Abcdefghi", "Abcdefg1!", "Abc def12", "密码Abc123456", `A${"1".repeat(256)}`]) {
+    assert.equal((await post("admin/password", { token, password: invalid })).status, 400,
+      "New passwords require more than eight ASCII letters/digits, including both");
+  }
   assert.equal((await post("admin/password", { token, password }, "https://wrong.example")).status, 403);
   assert.equal((await post("admin/password", { token: "a".repeat(64), password })).status, 400);
   assert.equal((await post("admin/password", { token: expired, password })).status, 400);

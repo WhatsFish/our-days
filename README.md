@@ -74,7 +74,8 @@ Run `scripts/admin-password-link.ts` with the worker's environment to issue a
 24-hour, one-use setup/recovery link. Give that link only to the operator.
 Its random credential is in the URL fragment (not web access logs); the setup
 page removes it from browser history and submits it only in the same-origin
-password request. Passwords require at least 12 characters, are salted/scrypt
+password request. New passwords require 9–256 ASCII letters/digits, including
+at least one letter and one digit, and are salted/scrypt
 hashed, never printed, and replace the old environment admin pairing code.
 Setting a password revokes old admin sessions and outstanding recovery links,
 without changing reader sessions, photos, API credentials or delivery settings.

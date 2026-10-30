@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { adminPasswordPattern, adminPasswordHelp, validAdminPassword } from "../../lib/password-policy";
 
 export default function PasswordPage() {
   const [token, setToken] = useState("");
@@ -15,6 +16,7 @@ export default function PasswordPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const password = String(form.get("password") ?? "");
+    if (!validAdminPassword(password)) { setError(adminPasswordHelp); return; }
     if (password !== form.get("confirm")) { setError("两次输入的密码不一致"); return; }
     setBusy(true); setError("");
     try {
@@ -31,13 +33,13 @@ export default function PasswordPage() {
     {done ? <><p className="alert" role="status">密码已设置。旧管理员配对码和旧登录状态已失效，以后使用 admin 和新密码登录。</p>
       <a href="/our-days">前往登录并管理照片</a></> : <>
       <p>用户名固定为 <strong>admin</strong>。密码由你自己设置并记住，不需要发到聊天中。</p>
-      <p className="muted">至少 12 个字符，建议用密码管理器生成独有的强密码。此设置链接一次有效，完成后失效。</p>
+      <p className="muted">{adminPasswordHelp}。此设置链接一次有效，完成后失效。</p>
       {error && <p className="alert error" role="alert">{error}</p>}
       {!token ? <p role="status">请使用完整的临时密码设置链接打开此页；刷新会清除临时凭证，可重新打开原链接。</p> :
         <form onSubmit={submit}><fieldset disabled={busy}>
           <label>用户名<input value="admin" readOnly autoComplete="username" /></label>
-          <label>新密码<input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={256} required /></label>
-          <label>再次输入新密码<input name="confirm" type="password" autoComplete="new-password" minLength={12} maxLength={256} required /></label>
+          <label>新密码<input name="password" type="password" autoComplete="new-password" minLength={9} maxLength={256} pattern={adminPasswordPattern} title={adminPasswordHelp} required /></label>
+          <label>再次输入新密码<input name="confirm" type="password" autoComplete="new-password" minLength={9} maxLength={256} pattern={adminPasswordPattern} title={adminPasswordHelp} required /></label>
           <button>{busy ? "保存中…" : "保存密码"}</button>
         </fieldset></form>}
     </>}

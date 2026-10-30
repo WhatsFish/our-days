@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { NextRequest } from "next/server";
 import { query, transaction } from "./db";
 import { AppError } from "./domain";
+import { validAdminPassword, adminPasswordHelp } from "./password-policy";
 
 export const cookieName = "our_days_session";
 export function tokenHash(token: string) { return createHash("sha256").update(token).digest("hex"); }
@@ -55,8 +56,8 @@ export async function login(role: "admin" | "reader", password: string, username
 
 export async function setAdminPassword(token: string, password: string) {
   if (!/^[a-f0-9]{64}$/.test(token)) throw new AppError(400, "password_token", "设置链接无效或已过期");
-  if (password.length < 12 || password.length > 256 || password.trim().length < 12) {
-    throw new AppError(400, "password_strength", "密码请使用至少 12 个字符，建议使用独有的长密码或口令");
+  if (!validAdminPassword(password)) {
+    throw new AppError(400, "password_strength", adminPasswordHelp);
   }
   await transaction(async client => {
     await client.query("SELECT pg_advisory_xact_lock(7316,5)");
