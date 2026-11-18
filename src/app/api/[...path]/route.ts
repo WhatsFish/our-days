@@ -10,6 +10,7 @@ import { suggestCaption } from "../../../lib/ai";
 import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../../lib/wechat";
 import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
 import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../../lib/ai-config";
+import { arkSettings, saveArkSettings } from "../../../lib/ark-config";
 import { lookupPhotoPlace } from "../../../lib/photo-place";
 import { READY_PHOTO_SQL, READY_PHOTOS_BASE_SQL } from "../../../lib/photo-queue";
 import { OPERATOR_COUNTS_SQL, resourceStatus, workerHealth, type OperatorCounts } from "../../../lib/operator-status";
@@ -89,6 +90,7 @@ export async function GET(request: NextRequest, context: Context) {
       return json(rows);
     }
     await requireRole(request, true);
+    if (route === "image/config") return json(await arkSettings());
     if (route === "special") {
       const requested = z.coerce.number().int().min(1).max(100000).parse(request.nextUrl.searchParams.get("page") ?? 1);
       const [count] = await query<{ total: number }>("SELECT count(*)::int AS total FROM special_materials");
@@ -274,6 +276,7 @@ export async function POST(request: NextRequest, context: Context) {
       });
       return json({ ok: true });
     }
+    if (route === "image/config") return json(await saveArkSettings(body));
     if (route === "ai/config") return json(await saveAISettings(body));
     if (route === "ai/test") {
       z.object({ confirm: z.literal(true) }).parse(body);

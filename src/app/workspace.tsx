@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Edition, Photo, Settings, Snapshot } from "../lib/domain";
 import type { PublicAI } from "../lib/ai-config";
+import type { PublicArk } from "../lib/ark-config";
 import { UploadPanel } from "./upload-panel";
 import { PhotoLibrary } from "./photo-library";
 import { aiPricing, GLM_FLASH_MODEL, supportsPhotoCaption } from "../lib/ai-policy";
@@ -325,7 +326,59 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
     <section className="card"><span className="section-kicker">QUEUE</span><QueueRules enabled={s.queue_loop ?? false} busy={busy} perform={perform} /></section>
     <section className="card"><ResourcePanel dashboard={d} /></section>
     <section className="card settings-ai"><span className="section-kicker">AI PROVIDER</span><AISettingsPanel config={d.ai} busy={busy} perform={perform} /></section>
+    <section className="card settings-ai" id="image-generation"><span className="section-kicker">IMAGE GENERATION</span><ArkSettingsPanel busy={busy} perform={perform} /></section>
   </div>;
+}
+
+function ArkSettingsPanel({ busy, perform }: { busy: boolean; perform: Perform }) {
+  const [config, setConfig] = useState<PublicArk | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [clearKey, setClearKey] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true); setLoadError("");
+    try { setConfig(await api<PublicArk>("image/config")); }
+    catch (error) { setLoadError(error instanceof Error ? error.message : "图片配置读取失败"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  return <section aria-labelledby="ark-settings-title">
+    <h2 id="ark-settings-title">火山方舟 · 图片生成</h2>
+    <p className="muted">独立保存 Seedream 的火山方舟 API Key，不会修改上方智谱文案配置。这里仅保存密钥，尚未验证模型权限。</p>
+    <p className="muted">固定服务地址：ark.cn-beijing.volces.com。保存不会调用模型、产生生成费用、上传参考图或发送微信消息。</p>
+    {loading && <p role="status">正在读取图片配置…</p>}
+    {loadError && <div className="alert error" role="alert">{loadError} <button type="button" className="quiet" onClick={() => void load()}>重新读取</button></div>}
+    {config && !loadError && <form onSubmit={event => {
+      event.preventDefault(); setFeedback(null);
+      void perform(async () => {
+        try {
+          setConfig(await api<PublicArk>("image/config", { apiKey, clearKey }));
+          setApiKey(""); setClearKey(false);
+          setFeedback({ error: false, message: clearKey ? "火山方舟密钥已删除。" : "火山方舟密钥已保存；不会回显。未调用图片生成接口。" });
+        } catch (error) {
+          setFeedback({ error: true, message: error instanceof Error ? error.message : "保存失败" });
+          throw error;
+        }
+      }, clearKey ? "火山方舟密钥已删除" : "火山方舟密钥已保存；未触发生成或发送");
+    }}>
+      <fieldset className="form-grid" disabled={busy || loading}>
+        <p className="wide" role="status">图片 API Key：{config.keyConfigured ? "已保存（未验证权限）" : "尚未配置"}</p>
+        <label className="wide">火山方舟 API Key
+          <input name="arkApiKey" type="password" autoComplete="new-password" value={apiKey} maxLength={512}
+            disabled={clearKey} required={!config.keyConfigured && !clearKey}
+            onChange={event => { setApiKey(event.target.value); setFeedback(null); }}
+            placeholder={config.keyConfigured ? "留空保留现有密钥，填入新值则替换" : "在这里粘贴火山方舟 API Key"} />
+        </label>
+        {config.keyConfigured && <label className="check wide"><input name="clearArkKey" type="checkbox" checked={clearKey}
+          onChange={event => { setClearKey(event.target.checked); setApiKey(""); setFeedback(null); }} />删除已保存的火山方舟密钥</label>}
+        <div className="actions wide"><button disabled={busy || loading}>{busy ? "处理中…" : clearKey ? "删除火山方舟密钥" : "保存火山方舟密钥"}</button></div>
+        {feedback && <p className={`wide alert${feedback.error ? " error" : ""}`} role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
+      </fieldset>
+    </form>}
+    <p className="muted">密钥通过 HTTPS 提交，仅管理员可设置；服务器私密文件仅服务账号可读写，页面不返回原值，也不存入浏览器本地存储。请勿把密钥发到聊天里。</p>
+  </section>;
 }
 
 function SendHistory({ dashboard: d, busy, perform }: { dashboard: Dashboard; busy: boolean; perform: Perform }) {

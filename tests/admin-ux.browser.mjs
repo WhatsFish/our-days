@@ -49,6 +49,7 @@ try {
   const specialItems = [];
   let signedIn = false;
   let passwordSet = false;
+  let arkKeyConfigured = false, arkSaves = 0, failArkSave = false;
   await page.route("**/our-days/api/**", async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.split("/api/")[1];
@@ -70,6 +71,20 @@ try {
     }
     else if (endpoint === "editions") body = [];
     else if (endpoint === "admin") body = dashboard;
+    else if (endpoint === "image/config") {
+      if (route.request().method() === "POST") {
+        arkSaves++;
+        const input = route.request().postDataJSON();
+        if (failArkSave) {
+          failArkSave = false;
+          await route.fulfill({ status: 503, json: { error: "Synthetic credential storage failure" } });
+          return;
+        }
+        assert.ok(input.apiKey === "SyntheticArkKey123" || input.apiKey === "");
+        arkKeyConfigured = input.clearKey ? false : !!input.apiKey || arkKeyConfigured;
+      }
+      body = { provider: "ark", keyConfigured: arkKeyConfigured };
+    }
     else if (endpoint === "special") body = { items: specialItems, total: specialItems.length, page: 1 };
     else if (endpoint === "special/upload") {
       await delay(250);
@@ -213,6 +228,27 @@ try {
   await page.getByRole("heading", { name: "定时任务配置", exact: true }).waitFor();
   assert.equal(await nav.getByRole("link", { name: "API 与系统配置", exact: true }).getAttribute("aria-current"), "page");
   await page.getByText("GLM-5.3-Flash · 已内置", { exact: true }).waitFor();
+  const ark = page.getByRole("region", { name: "火山方舟 · 图片生成", exact: true });
+  await ark.getByText("图片 API Key：尚未配置", { exact: true }).waitFor();
+  const arkInput = ark.getByLabel("火山方舟 API Key", { exact: true });
+  assert.equal(await arkInput.getAttribute("type"), "password");
+  await arkInput.fill("SyntheticArkKey123");
+  failArkSave = true;
+  await ark.getByRole("button", { name: "保存火山方舟密钥", exact: true }).click();
+  await ark.getByRole("alert").filter({ hasText: "Synthetic credential storage failure" }).waitFor();
+  assert.equal(await arkInput.inputValue(), "SyntheticArkKey123", "Save failure preserves the key draft");
+  await ark.getByRole("button", { name: "保存火山方舟密钥", exact: true }).click();
+  await ark.getByText("火山方舟密钥已保存；不会回显。未调用图片生成接口。", { exact: true }).waitFor();
+  assert.equal(await arkInput.inputValue(), "", "Successful save clears the secret input");
+  assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("SyntheticArkKey123")), false);
+  assert.equal(dashboard.ai.provider, "zhipu", "Image configuration leaves caption provider unchanged");
+  await page.reload();
+  await ark.getByText("图片 API Key：已保存（未验证权限）", { exact: true }).waitFor();
+  assert.equal(await arkInput.inputValue(), "", "Reload does not reveal the saved key");
+  await ark.getByRole("checkbox", { name: "删除已保存的火山方舟密钥", exact: true }).check();
+  await ark.getByRole("button", { name: "删除火山方舟密钥", exact: true }).click();
+  await ark.getByText("火山方舟密钥已删除。", { exact: true }).waitFor();
+  assert.equal(arkSaves, 3);
   assert.equal(await page.getByRole("checkbox", { name: /费用限额/ }).count(), 0);
   assert.equal(await page.getByLabel(/输入单价/).count(), 0);
   await page.getByLabel("天气城市名（显示用）", { exact: true }).fill("湖州");

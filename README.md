@@ -95,6 +95,16 @@ photos override this ordering; imported material must still be confirmed.
 
 ### Special finished artwork
 
+The **API 与系统配置** page includes an independent **火山方舟 · 图片生成**
+credential form. Administrator-only `GET/POST /api/image/config` returns only
+the provider and whether a key is configured; it never returns the secret.
+The key is stored atomically with mode `0600` in
+`PRIVATE_CONFIG_DIR/ark-image.json`, separately from caption `ai.json`.
+Blank submissions preserve an existing key; explicit deletion clears it.
+Same-origin write protection and administrator authentication apply.
+Saving does not validate provider/model access, upload reference images,
+make paid API requests, schedule cards or change daily delivery.
+
 `/our-days/special` is a separate administrator-only upload page for birthday
 greetings and other finished JPEG/PNG/WebP artwork (25MiB per image). It uses the
 existing administrator login and shows upload progress, success/errors, saved
