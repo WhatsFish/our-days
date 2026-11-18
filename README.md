@@ -244,7 +244,10 @@ persistent storage, not the OS disk or an Azure temporary disk.
 Set `OUR_DAYS_DATA_DIR` (Compose interpolation) to an existing private directory
 owned by UID/GID `10001`; Compose deliberately refuses to create an absent host
 directory. In containers, `MEDIA_ROOT` is `/media`. `MEDIA_QUOTA_MB` counts uploads,
-originals and derivatives; the default is 200 MB. The administrator AI settings
+originals and derivatives, including special artwork. Docker Compose sets
+`MEDIA_QUOTA_MB=1024` for both web and worker (1 GiB shared media capacity);
+this overrides the environment-file value. Standalone code falls back to 200 MiB
+when no quota is configured. The administrator AI settings
 are stored separately under `/data/our-days-config` (UID/GID 10001, mode 700),
 mounted at `/config`; `ai.json` has mode 600. Create that directory before
 starting Compose. It is included in the encrypted application backup, not Git.
