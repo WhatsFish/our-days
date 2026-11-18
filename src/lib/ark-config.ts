@@ -33,6 +33,12 @@ export async function arkSettings(): Promise<PublicArk> {
   return { provider: "ark", keyConfigured: !!config?.apiKey };
 }
 
+export async function arkImageKey() {
+  const config = await stored();
+  if (!config?.apiKey) throw new AppError(503, "ark_key_missing", "请先保存火山方舟图片 API Key");
+  return config.apiKey;
+}
+
 export async function saveArkSettings(input: unknown): Promise<PublicArk> {
   const data = arkConfigInput.parse(input);
   if (data.clearKey && data.apiKey) throw new AppError(400, "ark_key", "不能同时删除和替换密钥");

@@ -11,6 +11,7 @@ import type { OperatorCounts, Resources } from "../lib/operator-status";
 import type { WecomRecipientResult } from "../lib/wecom-image.mjs";
 import { AdminLogin } from "./admin-login";
 import { AppFrame } from "./app-frame";
+import { HolidayPanel } from "./holiday-panel";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -128,9 +129,10 @@ export function Workspace() {
           <span>{dashboard.pushChannel === "wecom" && dashboard.pushReady ? "企业微信图片通道已配置" : "自动发图通道尚未配置"}</span>
           <span>{(dashboard.bytes / 1024 / 1024).toFixed(1)} / {dashboard.quotaMb} MB</span>
         </div>
-        {tab === "status" && <OperatorStatus dashboard={dashboard} />}
+        {tab === "status" && <><OperatorStatus dashboard={dashboard} /><HolidayPanel mode="status" /></>}
         {tab === "library" && <>
           <UploadPanel jobs={dashboard.imports} busy={busy} perform={perform} refresh={refreshUploads} />
+          <HolidayPanel mode="queue" />
           <details className="card">
             <summary>待发送 {dashboard.stats.ready} 张 · 下一张：{dashboard.queue[0]?.date_label || (dashboard.queue.length ? "未填写日期" : "无")} · 待确认 {dashboard.stats.unreviewed} 张 · 展开队列</summary>
             <p className="muted">按真实发送顺序显示前 100 张。置顶优先；其余按{dashboard.settings.queue_loop ? "未发送优先、上次发送日期、入库时间" : "入库时间"}排序。</p>
@@ -153,7 +155,7 @@ export function Workspace() {
             pin={photo => perform(async () => { await api("queue/pin", { id: photo.id, pinned: !photo.queue_pinned_at }); },
               photo.queue_pinned_at ? "已取消置顶" : "已置顶，将优先安排下一次发送")} />
         </>}
-        {tab === "history" && <SendHistory dashboard={dashboard} busy={busy} perform={perform} />}
+        {tab === "history" && <><SendHistory dashboard={dashboard} busy={busy} perform={perform} /><HolidayPanel mode="history" /></>}
         {tab === "settings" && <SettingsPanel dashboard={dashboard} busy={busy} perform={perform} />}
       </>}
     </>}
@@ -278,7 +280,7 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
     setWeatherLon(s.weather_lon === null ? "" : String(s.weather_lon));
   }, [s.weather_city, s.weather_lat, s.weather_lon]);
   const weatherReady = weatherLat.trim() !== "" && weatherLon.trim() !== "";
-  return <div className="settings-grid"><section className="card settings-schedule">
+  return <div className="settings-grid"><HolidayPanel mode="settings" /><section className="card settings-schedule">
     <span className="section-kicker">SCHEDULE</span>
     <h2>定时任务配置</h2>
     <p className="muted">每天一张，按「队列与素材」中的顺序发送。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>

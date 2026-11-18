@@ -125,7 +125,10 @@ export function SpecialWorkspace() {
           <a href={`${base}/api/special/${item.id}/preview`} target="_blank" rel="noreferrer">
             <img className="mini" src={`${base}/api/special/${item.id}/preview`} alt={item.title} /></a>
           <div><strong>{item.title}</strong><p className="muted">{item.width} × {item.height} · {(Number(item.original_bytes) / 1024 / 1024).toFixed(2)} MB · {new Date(item.created_at).toLocaleString("zh-CN")}</p>
-            {!item.sends?.length && <p className="muted">独立保存，尚未安排发送</p>}
+            {!item.sends?.length && !item.holiday_uses?.length && <p className="muted">独立保存，尚未安排发送</p>}
+            {item.holiday_uses?.map(use => <p key={`${use.day}-${use.revision}`} className="muted">
+              节日自动计划：{use.day} · 第 {use.revision} 版 · {use.latest ? "当前版本（以分类开关与队列状态为准）" : "历史版本，不自动发送"}
+              {" "}<a href={`${base}?view=library`}>查看队列</a></p>)}
             {item.sends?.map(send => <p key={send.id} className="muted">
               {new Date(send.send_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（北京时间） ·
               {sendLabels[send.status] ?? send.status}

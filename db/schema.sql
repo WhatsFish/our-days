@@ -167,6 +167,42 @@ WHERE s.id=true AND p.approved
     SELECT 1 FROM editions e WHERE e.photo_id=p.id AND e.status<>'cancelled'
   ));
 CREATE INDEX IF NOT EXISTS imports_queued ON imports(created_at) WHERE status IN ('queued','processing');
+CREATE TABLE IF NOT EXISTS holiday_settings (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  solar_terms boolean NOT NULL DEFAULT true,
+  chinese boolean NOT NULL DEFAULT true,
+  western boolean NOT NULL DEFAULT true,
+  reference_id uuid REFERENCES special_materials(id)
+);
+INSERT INTO holiday_settings(id) VALUES(true) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS holiday_cards (
+  day date PRIMARY KEY,
+  names text[] NOT NULL,
+  categories text[] NOT NULL,
+  status text NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting','sending','accepted','failed','unknown','skipped')),
+  sent_material_id uuid REFERENCES special_materials(id),
+  recipients text[],
+  recipient_results jsonb,
+  record_id text,
+  error_code text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS holiday_generations (
+  id uuid PRIMARY KEY,
+  day date NOT NULL REFERENCES holiday_cards(day),
+  revision integer NOT NULL,
+  names text[] NOT NULL,
+  feedback text NOT NULL DEFAULT '',
+  prompt text,
+  status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','generating','ready','failed','unknown')),
+  material_id uuid REFERENCES special_materials(id),
+  reference_id uuid REFERENCES special_materials(id),
+  error_code text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(day,revision)
+);
+CREATE INDEX IF NOT EXISTS holiday_generations_pending ON holiday_generations(day) WHERE status='queued';
 CREATE OR REPLACE VIEW service_health AS
 SELECT
   (SELECT max(version) FROM schema_version) AS schema_version,
@@ -183,6 +219,14 @@ SELECT
     OR (d.status='accepted' AND e.published_at<now()-interval '15 minutes')) +
     (SELECT count(*)::int FROM special_sends WHERE status IN ('failed','unknown','sending')
       OR (status='scheduled' AND send_at<now()-interval '2 minutes'))) AS delivery_attention,
-  (SELECT queue_loop FROM settings WHERE id=true) AS queue_loop;
+  (SELECT queue_loop FROM settings WHERE id=true) AS queue_loop,
+  (SELECT count(*)::int FROM holiday_cards c
+    JOIN holiday_settings h ON h.id=true
+    JOIN LATERAL (SELECT status,updated_at FROM holiday_generations WHERE day=c.day ORDER BY revision DESC LIMIT 1) g ON true
+    WHERE c.day >= (now() AT TIME ZONE 'Asia/Shanghai')::date
+      AND ((h.solar_terms AND 'solar_terms'=ANY(c.categories)) OR (h.chinese AND 'chinese'=ANY(c.categories))
+        OR (h.western AND 'western'=ANY(c.categories)))
+      AND (g.status IN ('failed','unknown') OR c.status IN ('failed','unknown')
+        OR (g.status='generating' AND g.updated_at<now()-interval '10 minutes'))) AS holiday_attention;
 INSERT INTO schema_version(version) VALUES (1) ON CONFLICT DO NOTHING;
 COMMIT;

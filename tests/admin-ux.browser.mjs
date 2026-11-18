@@ -47,6 +47,14 @@ try {
   };
   let generated = 0, saved = null, lastFacts = "", lastContext = null;
   const specialItems = [];
+  const holidayCard = {
+    day: "2040-12-25", names: ["圣诞节"], categories: ["western"], status: "waiting", error_code: null,
+    sent_material_id: null, recipient_results: null,
+    generation: { id: "00000000-0000-4000-8000-000000000888", day: "2040-12-25", revision: 1,
+      names: ["圣诞节"], feedback: "", status: "ready", material_id: "00000000-0000-4000-8000-000000000887", error_code: null },
+  };
+  const holidayRules = { solar_terms: true, chinese: true, western: true };
+  let holidayRegenerations = 0;
   let signedIn = false;
   let passwordSet = false;
   let arkKeyConfigured = false, arkSaves = 0, failArkSave = false;
@@ -71,6 +79,23 @@ try {
     }
     else if (endpoint === "editions") body = [];
     else if (endpoint === "admin") body = dashboard;
+    else if (endpoint === "holidays") body = {
+      rules: holidayRules, referenceReady: true, horizon: 14,
+      upcoming: holidayRules.western ? [holidayCard] : [], history: [],
+      attention: holidayCard.generation.status === "failed" ? 1 : 0,
+    };
+    else if (endpoint === "holidays/settings") {
+      Object.assign(holidayRules, route.request().postDataJSON());
+      body = holidayRules;
+    }
+    else if (endpoint === "holidays/regenerate") {
+      const input = route.request().postDataJSON();
+      assert.equal(input.day, holidayCard.day);
+      assert.equal(input.feedback, "Change the scene to nighttime");
+      holidayRegenerations++;
+      holidayCard.generation = { ...holidayCard.generation, revision: 2, status: "queued", material_id: null, error_code: null };
+      body = { id: "synthetic-regeneration" };
+    }
     else if (endpoint === "image/config") {
       if (route.request().method() === "POST") {
         arkSaves++;
@@ -228,6 +253,15 @@ try {
   await page.getByRole("heading", { name: "定时任务配置", exact: true }).waitFor();
   assert.equal(await nav.getByRole("link", { name: "API 与系统配置", exact: true }).getAttribute("aria-current"), "page");
   await page.getByText("GLM-5.3-Flash · 已内置", { exact: true }).waitFor();
+  for (const name of ["节气推送", "中国节日推送", "西方节日推送"]) {
+    assert.equal(await page.getByRole("switch", { name, exact: true }).isChecked(), true);
+  }
+  await page.getByRole("switch", { name: "西方节日推送", exact: true }).uncheck();
+  await page.getByText("已保存；开关立即影响尚未发送的节日，不改变每日发送总开关。", { exact: true }).waitFor();
+  assert.equal(holidayRules.western, false);
+  assert.equal(dashboard.settings.paused, true);
+  await page.getByRole("switch", { name: "西方节日推送", exact: true }).check();
+  await page.getByText("已保存；开关立即影响尚未发送的节日，不改变每日发送总开关。", { exact: true }).waitFor();
   const ark = page.getByRole("region", { name: "火山方舟 · 图片生成", exact: true });
   await ark.getByText("图片 API Key：尚未配置", { exact: true }).waitFor();
   const arkInput = ark.getByLabel("火山方舟 API Key", { exact: true });
@@ -249,6 +283,20 @@ try {
   await ark.getByRole("button", { name: "删除火山方舟密钥", exact: true }).click();
   await ark.getByText("火山方舟密钥已删除。", { exact: true }).waitFor();
   assert.equal(arkSaves, 3);
+  await nav.getByRole("link", { name: "队列与素材", exact: true }).click();
+  const holidays = page.getByRole("region", { name: "节日 AI 贺卡", exact: true });
+  await holidays.getByText("2040-12-25 · 圣诞节", { exact: true }).waitFor();
+  assert.equal(await holidays.getByRole("img", { name: "圣诞节待发送贺卡" }).count(), 1);
+  holidayCard.generation.status = "failed";
+  holidayCard.generation.error_code = "ark_http_403";
+  await holidays.getByRole("button", { name: "刷新节日计划", exact: true }).click();
+  await holidays.getByRole("alert").filter({ hasText: "ark_http_403" }).waitFor();
+  await holidays.getByLabel("修改意见", { exact: true }).fill("Change the scene to nighttime");
+  await holidays.getByRole("button", { name: "按意见重新生成", exact: true }).click();
+  await holidays.getByText("已安排重生成；完成后自动使用新版本。", { exact: true }).waitFor();
+  assert.equal(holidayRegenerations, 1);
+  assert.equal(await holidays.getByRole("button", { name: "等待生成完成", exact: true }).isDisabled(), true);
+  await nav.getByRole("link", { name: "API 与系统配置", exact: true }).click();
   assert.equal(await page.getByRole("checkbox", { name: /费用限额/ }).count(), 0);
   assert.equal(await page.getByLabel(/输入单价/).count(), 0);
   await page.getByLabel("天气城市名（显示用）", { exact: true }).fill("湖州");

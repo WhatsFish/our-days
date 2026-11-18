@@ -8,12 +8,16 @@ import { sendWechatNotice, wechatReady } from "./wechat";
 import { READY_PHOTO_SQL } from "./photo-queue";
 import { sendPhotoCard } from "./photo-card";
 import { processSpecialSends } from "./special-send";
+import { syncHolidayPlan, processHolidayDelivery, processHolidayGeneration } from "./holidays";
 
-export async function tick() {
+export async function tick(now = new Date()) {
   const lock = await pool.connect();
   const acquired = (await lock.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(7316,1) AS locked")).rows[0].locked;
   if (!acquired) { lock.release(); return; }
+  let publicationError: unknown;
   try {
+    await query("UPDATE holiday_cards SET status='unknown',error_code='send_interrupted',updated_at=now() WHERE status='sending'");
+    await syncHolidayPlan(now);
     await processSpecialSends();
     await processImport();
     await query("DELETE FROM sessions WHERE expires_at<now()");
@@ -25,7 +29,9 @@ export async function tick() {
     await query("UPDATE deliveries SET status='unknown',error_code='interrupted',updated_at=now() WHERE status='sending'");
     const [settings] = await query<Settings>("SELECT * FROM settings WHERE id=true");
     if (!settings.paused) {
-      const today = localDay(new Date(), settings.timezone);
+      const today = localDay(now, settings.timezone);
+      const holiday = process.env.PUSH_CHANNEL === "wecom" && await processHolidayDelivery(today, now);
+      if (!holiday) {
       if ((process.env.PUSH_CHANNEL ?? "wechat-test") === "wecom") {
         await transaction(async client => {
           const [timing] = (await client.query<{ due: boolean }>(
@@ -83,6 +89,7 @@ export async function tick() {
           [delivery.id, result.status, result.recordId ?? null, result.errorCode ?? null,
             result.recipients ? JSON.stringify(result.recipients) : null]);
       }
+      }
     }
     const accepted = await query<{ id: string; record_id: string }>(
       "SELECT id,record_id FROM deliveries WHERE channel='pushplus' AND status='accepted' AND updated_at<now()-interval '30 seconds' ORDER BY updated_at LIMIT 3");
@@ -91,13 +98,19 @@ export async function tick() {
       await query("UPDATE deliveries SET status=$2,updated_at=now(),error_code=$3 WHERE id=$1",
         [delivery.id, status, status === "failed" ? "provider_failed" : null]);
     }
-    await query("INSERT INTO worker_state(id,last_tick,error_code) VALUES(true,now(),NULL) ON CONFLICT(id) DO UPDATE SET last_tick=now(),error_code=NULL");
   } catch (error) {
     const code = error instanceof AppError ? error.code : "worker_failure";
     await query("INSERT INTO worker_state(id,error_code) VALUES(true,$1) ON CONFLICT(id) DO UPDATE SET error_code=$1", [code]);
-    throw error;
+    publicationError = error;
   } finally {
     await lock.query("SELECT pg_advisory_unlock(7316,1)");
     lock.release();
   }
+  try { await processHolidayGeneration(now); }
+  catch (error) {
+    await query("INSERT INTO worker_state(id,error_code) VALUES(true,'holiday_worker_failure') ON CONFLICT(id) DO UPDATE SET error_code='holiday_worker_failure'");
+    throw error;
+  }
+  if (publicationError) throw publicationError;
+  await query("INSERT INTO worker_state(id,last_tick,error_code) VALUES(true,now(),NULL) ON CONFLICT(id) DO UPDATE SET last_tick=now(),error_code=NULL");
 }

@@ -93,7 +93,7 @@ In the cycling queue, unseen approved uploads sort before every previously sent
 photo, even mid-cycle. No round boundary delays them. Only explicit pinned
 photos override this ordering; imported material must still be confirmed.
 
-### Special finished artwork
+### Private image API credentials
 
 The **API 与系统配置** page includes an independent **火山方舟 · 图片生成**
 credential form. Administrator-only `GET/POST /api/image/config` returns only
@@ -104,6 +104,52 @@ Blank submissions preserve an existing key; explicit deletion clears it.
 Same-origin write protection and administrator authentication apply.
 Saving does not validate provider/model access, upload reference images,
 make paid API requests, schedule cards or change daily delivery.
+
+### Automatic holiday cards
+
+The three **节气推送 / 中国节日推送 / 西方节日推送** switches default on.
+`holiday-calendar.ts` computes lunar festivals, Beijing solar-term dates and
+explicit Western observances (including US Thanksgiving). It does not import
+government vacation/working-day calendars. Coincident events share one daily
+card. The rolling 14-day plan appears in **队列与素材**, with private full-size
+previews, revision status, generation errors and a feedback/regenerate form.
+
+Set `holiday_settings.reference_id` to the operator-approved birthday artwork.
+The existing minute worker plans missing cards and generates at most one image
+per tick with Seedream 5.5 (`doubao-seedream-5-5-261028`). The stripped reference
+is submitted as a Base64 image, using new event-specific scenes rather than
+repeating the reference layout. The production integration uses only the saved
+Ark credential; it never exposes media through public URLs. Each generation
+reserves CNY 0.28 (CNY 0.33 for revisions using both the birthday reference
+and current ready card) from the shared CNY 100 monthly AI cap and settles against
+documented image size pricing. Central cost logging remains best effort.
+
+Ready holiday cards replace the ordinary photo at the existing daily send time,
+without consuming a photo or requiring approval. The overall daily pause and
+push readiness gates still apply; pre-generation can continue while daily
+sending is paused. Existing noncancelled photo reservations win for that day.
+Switches apply to unsent plans immediately; disabling a category does not erase
+prior cards or allow a second daily message after a holiday was submitted.
+Independent one-off special sends retain their explicitly requested timing.
+
+Generation revisions are durable in `holiday_generations`; queued/generating
+jobs cannot be duplicated by repeated clicks. Feedback regeneration is allowed
+before the send time, at most ten versions per date. A pending/failed replacement
+blocks the old image, rather than silently sending a rejected version. Failed
+or ambiguous generations are not automatically billed again. A new successful
+generation becomes the pending daily card automatically.
+
+`holiday_cards` stores immutable sent material IDs and per-recipient results.
+Sending is claimed before submission. Partial acceptance, interrupted sends
+and transport uncertainty never automatically retry. Missing images block
+photo fallback and report an error; after a 15-minute window a holiday is
+explicitly missed, not sent late. The generation lock is separate from the
+publication lock so provider latency does not block toggles or photo settings.
+Admin status and `/status` monitor unresolved generation/delivery errors.
+No new cron is required; the encrypted database/media/config backup covers
+holiday records, revisions and private Ark credentials.
+
+### Special finished artwork
 
 `/our-days/special` is a separate administrator-only upload page for birthday
 greetings and other finished JPEG/PNG/WebP artwork (25MiB per image). It uses the

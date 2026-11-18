@@ -83,6 +83,9 @@ input[type="file"] { border-style: dashed; background: var(--soft); padding: 20p
 input[type="file"]::file-selector-button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; margin-right: 12px; cursor: pointer; }
 .check { display: flex; align-items: flex-start; gap: 10px; font-weight: 500; }
 .check input { width: 17px; height: 17px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--green); }
+.holiday-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 20px; }
+.holiday-item { min-width: 0; border: 1px solid var(--line); background: var(--soft); border-radius: 14px; padding: 18px; }
+.holiday-preview { display: block; width: 100%; height: auto; border-radius: 10px; margin: 12px 0; }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
 .statusbar { display: flex; gap: 12px 24px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin: 0 0 22px; padding: 12px 17px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; }
 .statusbar span { display: flex; align-items: center; gap: 8px; }

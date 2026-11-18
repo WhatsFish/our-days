@@ -9,7 +9,7 @@ import { AI_ACCOUNTING_CNY_PER_USD, AI_MONTHLY_CNY_LIMIT, GLM_FLASH_CONTEXT_TOKE
 import { captionSystemPrompt, prepareCaptionImage, type CaptionContext } from "./ai-caption";
 import { mediaPath } from "./media";
 
-async function logCentral(provider: string, model: string, input: number | null, output: number | null, cost: number | null, duration: number, task: string) {
+export async function logCentral(provider: string, model: string, input: number | null, output: number | null, cost: number | null, duration: number, task: string) {
   if (!process.env.COST_PG_USER) {
     console.warn("[our-days] cost_sink_unconfigured; retained in ai_events");
     return;

@@ -11,6 +11,7 @@ import { parseWechatReceipt, verifyWechatSignature, wechatReady } from "../../..
 import { decryptWecomCallback, wecomEncryptedBody } from "../../../lib/wecom-callback";
 import { aiSettings, runtimeAI, saveAISettings, testAIConnection } from "../../../lib/ai-config";
 import { arkSettings, saveArkSettings } from "../../../lib/ark-config";
+import { holidayDashboard, saveHolidayRules, requestHolidayRegeneration } from "../../../lib/holidays";
 import { lookupPhotoPlace } from "../../../lib/photo-place";
 import { READY_PHOTO_SQL, READY_PHOTOS_BASE_SQL } from "../../../lib/photo-queue";
 import { OPERATOR_COUNTS_SQL, resourceStatus, workerHealth, type OperatorCounts } from "../../../lib/operator-status";
@@ -91,13 +92,17 @@ export async function GET(request: NextRequest, context: Context) {
     }
     await requireRole(request, true);
     if (route === "image/config") return json(await arkSettings());
+    if (route === "holidays") return json(await holidayDashboard());
     if (route === "special") {
       const requested = z.coerce.number().int().min(1).max(100000).parse(request.nextUrl.searchParams.get("page") ?? 1);
       const [count] = await query<{ total: number }>("SELECT count(*)::int AS total FROM special_materials");
       const page = Math.min(requested, Math.max(1, Math.ceil(count.total / 20)));
       const items = await query(`SELECT m.id,m.title,m.original_ext,m.original_bytes,m.width,m.height,m.created_at,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('id',s.id,'send_at',s.send_at,'status',s.status,'error_code',s.error_code)
-          ORDER BY s.send_at DESC) FROM special_sends s WHERE s.material_id=m.id),'[]'::jsonb) AS sends
+          ORDER BY s.send_at DESC) FROM special_sends s WHERE s.material_id=m.id),'[]'::jsonb) AS sends,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('day',g.day::text,'revision',g.revision,
+          'latest',g.revision=(SELECT max(revision) FROM holiday_generations WHERE day=g.day),'status',c.status))
+          FROM holiday_generations g JOIN holiday_cards c ON c.day=g.day WHERE g.material_id=m.id),'[]'::jsonb) AS holiday_uses
         FROM special_materials m ORDER BY m.created_at DESC,m.id DESC LIMIT 20 OFFSET $1`, [(page - 1) * 20]);
       return json({ items, page, total: count.total });
     }
@@ -255,6 +260,11 @@ export async function POST(request: NextRequest, context: Context) {
       return json({ id }, 202);
     }
     const body = await parseJson(request);
+    if (route === "holidays/settings") return json(await saveHolidayRules(body));
+    if (route === "holidays/regenerate") {
+      const data = z.object({ day: z.string(), feedback: z.string().max(1000).default("") }).strict().parse(body);
+      return json(await requestHolidayRegeneration(data.day, data.feedback), 202);
+    }
     if (route === "queue/settings") {
       const { loop } = z.object({ loop: z.boolean() }).parse(body);
       await transaction(async client => {
@@ -326,6 +336,9 @@ export async function POST(request: NextRequest, context: Context) {
     if (route === "schedule") {
       const value = editionInput.parse(body);
       const result = await transaction(async client => {
+        await client.query("SELECT pg_advisory_xact_lock(7316,1)");
+        if ((await client.query("SELECT day FROM holiday_cards WHERE day=$1 AND (recipients IS NOT NULL OR status IN ('sending','accepted','unknown'))",
+          [value.day])).rowCount) throw new AppError(409, "holiday_day_used", "当天节日贺卡已进入发送流程，不能再安排照片");
         const s = (await client.query<Settings>("SELECT * FROM settings WHERE id=true FOR SHARE")).rows[0];
         const photo = await client.query("SELECT id FROM photos WHERE id=$1 AND approved=true FOR SHARE", [value.photo_id]);
         if (!photo.rowCount) throw new AppError(409, "unapproved", "照片必须先批准");

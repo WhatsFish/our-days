@@ -24,6 +24,7 @@ const original = await sharp({ create: { width: 320, height: 480, channels: 3, b
 try {
   await pool.query(await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"));
   await pool.query("TRUNCATE special_sends,special_materials,photos,editions,deliveries,favorites,imports,worker_state CASCADE");
+  await pool.query("INSERT INTO holiday_settings(id) VALUES(true) ON CONFLICT DO NOTHING");
   await pool.query("UPDATE settings SET paused=true,timezone='UTC',send_time='00:00',enabled_at=now()-interval '1 day',weather_lat=NULL,weather_lon=NULL,almanac=false,star_note=''");
   const settings = (await pool.query("SELECT * FROM settings")).rows[0];
   const material = await uploadSpecialMaterial(original, "Synthetic birthday");
