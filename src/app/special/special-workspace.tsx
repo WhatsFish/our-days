@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { SpecialMaterial } from "../../lib/special-media";
 import { AdminLogin } from "../admin-login";
+import { AppFrame } from "../app-frame";
 
 const base = "/our-days";
 const sendLabels: Record<string, string> = {
@@ -97,14 +98,17 @@ export function SpecialWorkspace() {
     form.set("file", file); form.set("title", title.trim() || file.name);
     xhr.send(form);
   }
-  return <main className="shell">
-    <header className="masthead"><h1>鱼羊日记 · 特殊素材</h1><a href={base}>返回管理后台</a></header>
-    <p>生日贺图、节日卡片等成品图单独存放在这里，不进入日常照片队列、不参与循环。</p>
+  return <AppFrame admin={role === "admin"} active="special" busy={busy} logout={() => {
+    setBusy(true); setError("");
+    void api("logout", {}).then(() => { setRole(null); setLibrary(null); })
+      .catch(error => setError(error.message)).finally(() => setBusy(false));
+  }}>
+    <div className="module-note">成品贺图独立保存，不进入日常照片队列，也不参与循环。</div>
     {error && <p className="alert error" role="alert">{error}</p>}
     {notice && <p className="alert" role="status">{notice}</p>}
     {loading ? <p role="status">正在检查登录状态…</p> : role !== "admin" ?
       <AdminLogin busy={busy} submit={event => { void login(event); }} /> : <>
-      <section className="card"><h2>上传特殊素材</h2>
+      <div className="special-grid"><section className="card"><span className="section-kicker">UPLOAD</span><h2>上传特殊素材</h2>
         <p className="muted">支持静态 JPEG / PNG / WebP，单张最多 25MB。原文件完整保留，预览不加边框、不加文案。这里仅保存素材，定时发送需另行安排。</p>
         <form onSubmit={upload}><fieldset disabled={busy}>
           <label>素材名称<input value={title} onChange={event => setTitle(event.target.value)} maxLength={160} placeholder="例如：生日零点贺图" /></label>
@@ -113,7 +117,7 @@ export function SpecialWorkspace() {
         </fieldset></form>
         {busy && <div role="status"><p>正在上传并保存，请勿关闭页面…</p><progress value={progress} max={100} aria-label="特殊素材上传进度" /></div>}
       </section>
-      <section className="card"><div className="section-heading"><h2>已保存的特殊素材 · {library?.total ?? 0} 张</h2>
+      <section className="card special-list"><div className="section-heading"><h2>已保存的特殊素材 · {library?.total ?? 0} 张</h2>
         <button className="quiet" disabled={busy} onClick={() => {
           setError(""); void refresh().catch(error => setError(error.message));
         }}>刷新列表</button></div>
@@ -134,6 +138,7 @@ export function SpecialWorkspace() {
           <span>第 {library.page} / {Math.max(1, Math.ceil(library.total / 20))} 页</span>
           <button className="quiet" disabled={busy || page * 20 >= library.total} onClick={() => setPage(n => n + 1)}>下一页</button></div>}
       </section>
+      </div>
     </>}
-  </main>;
+  </AppFrame>;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { adminPasswordPattern, adminPasswordHelp, validAdminPassword } from "../../lib/password-policy";
+import { AppFrame } from "../app-frame";
 
 export default function PasswordPage() {
   const [token, setToken] = useState("");
@@ -29,7 +30,7 @@ export default function PasswordPage() {
     } catch (error) { setError(error instanceof Error ? error.message : "网络异常，请重新提交"); }
     finally { setBusy(false); }
   }
-  return <main className="shell"><section className="card login"><h1>设置管理员密码</h1>
+  return <AppFrame admin={false}><section className="card login"><h2>设置管理员密码</h2>
     {done ? <><p className="alert" role="status">密码已设置。旧管理员配对码和旧登录状态已失效，以后使用 admin 和新密码登录。</p>
       <a href="/our-days">前往登录并管理照片</a></> : <>
       <p>用户名固定为 <strong>admin</strong>。密码由你自己设置并记住，不需要发到聊天中。</p>
@@ -43,5 +44,5 @@ export default function PasswordPage() {
           <button>{busy ? "保存中…" : "保存密码"}</button>
         </fieldset></form>}
     </>}
-  </section></main>;
+  </section></AppFrame>;
 }

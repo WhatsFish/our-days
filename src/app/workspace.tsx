@@ -9,6 +9,7 @@ import { aiPricing, GLM_FLASH_MODEL, supportsPhotoCaption } from "../lib/ai-poli
 import type { OperatorCounts, Resources } from "../lib/operator-status";
 import type { WecomRecipientResult } from "../lib/wecom-image.mjs";
 import { AdminLogin } from "./admin-login";
+import { AppFrame } from "./app-frame";
 
 type Role = "admin" | "reader" | null;
 type ImportJob = { id: string; status: string; added: number; duplicates: number; errors: string[] };
@@ -62,13 +63,29 @@ export function Workspace() {
     if (current === "admin") setDashboard(await api<Dashboard>("admin"));
   }, []);
   const refreshUploads = useCallback(() => refresh("admin"), [refresh]);
+  function navigate(key: string) {
+    setTab(key);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", key);
+    window.history.pushState(null, "", url);
+  }
   useEffect(() => {
     void api<{ role: Role }>("session").then(async session => {
       setRole(session.role);
-      setTab(session.role === "admin" ? "status" : "letters");
+      const requested = new URLSearchParams(window.location.search).get("view");
+      setTab(session.role === "admin" ? requested && ["status", "library", "history", "settings"].includes(requested) ? requested : "status" : "letters");
       await refresh(session.role);
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, [refresh]);
+  useEffect(() => {
+    const back = () => {
+      if (role !== "admin") return;
+      const key = new URLSearchParams(window.location.search).get("view") ?? "status";
+      setTab(["status", "library", "history", "settings"].includes(key) ? key : "status");
+    };
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, [role]);
   const pending = dashboard?.imports.some(job => ["queued", "processing"].includes(job.status));
   useEffect(() => {
     if ((!pending && tab !== "status") || role !== "admin" || busy) return;
@@ -89,28 +106,24 @@ export function Workspace() {
       setRole(session.role); setTab(session.role === "admin" ? "status" : "letters"); await refresh(session.role);
     }, "登录成功");
   }
-  if (loading) return <main className="shell"><h1>加载中…</h1></main>;
-  return <main className="shell">
-    <header className="masthead"><h1>鱼羊日记{role === "admin" ? " · 管理后台" : ""}</h1>
-      {role && <button className="quiet" disabled={busy} onClick={() => void perform(async () => {
+  if (loading) return <AppFrame admin={false}><div className="card loading-state" role="status">正在加载工作空间…</div></AppFrame>;
+  return <AppFrame admin={role === "admin"} active={tab} busy={busy} navigate={navigate}
+    refresh={role ? () => { void perform(async () => {}, "已刷新"); } : undefined}
+    logout={role ? () => { void perform(async () => {
         await api("logout", {}); setRole(null); setDashboard(null); setEditions([]);
-      }, "已退出", false)}>退出</button>}
-    </header>
+      }, "已退出", false); } : undefined}>
+    {role === "reader" && <button className="quiet reader-logout" disabled={busy} onClick={() => void perform(async () => {
+      await api("logout", {}); setRole(null); setDashboard(null); setEditions([]);
+    }, "已退出", false)}>退出</button>}
     {error && <div className="alert error" role="alert">{error}</div>}
     {notice && <div className="alert" role="status">{notice}</div>}
     {!role ? <AdminLogin busy={busy} submit={event => { void signIn(event); }} /> : <>
-      <nav className="tabs" aria-label="工作区">
-        {(role === "admin" ? [["status", "运行状态"], ["library", "队列与素材"], ["history", "发送记录"], ["settings", "API 与系统配置"]] : [["letters", "照片记录"]]).map(([key, name]) =>
-          <button key={key} disabled={busy} aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : "quiet"} onClick={() => setTab(key)}>{name}</button>)}
-        {role === "admin" && <a href={`${base}/special`}>特殊素材</a>}
-        <button className="quiet refresh" disabled={busy} onClick={() => void perform(async () => {}, "已刷新")}>刷新</button>
-      </nav>
       {tab === "letters" && <LetterBox editions={editions} busy={busy} favorite={edition => perform(async () => {
         await api("favorite", { id: edition.id, favorite: !edition.favorite });
       })} />}
       {role === "admin" && dashboard && <>
         <div className="statusbar">
-          <span>{dashboard.settings.paused ? "每日自动发送：已暂停" : `每日自动发送：${dashboard.settings.send_time}`}</span>
+          <span><i className={`status-dot${dashboard.settings.paused ? " paused" : ""}`} />{dashboard.settings.paused ? "每日自动发送：已暂停" : `每日自动发送：${dashboard.settings.send_time}`}</span>
           <span>{dashboard.pushChannel === "wecom" && dashboard.pushReady ? "企业微信图片通道已配置" : "自动发图通道尚未配置"}</span>
           <span>{(dashboard.bytes / 1024 / 1024).toFixed(1)} / {dashboard.quotaMb} MB</span>
         </div>
@@ -144,7 +157,7 @@ export function Workspace() {
       </>}
     </>}
     {role === "reader" && <footer>每日小笺仅作娱乐参考，不构成决策建议。</footer>}
-  </main>;
+  </AppFrame>;
 }
 
 type Perform = (work: () => Promise<void>, message?: string) => Promise<void>;
@@ -189,9 +202,24 @@ function ResourcePanel({ dashboard: d }: { dashboard: Dashboard }) {
 function OperatorStatus({ dashboard: d }: { dashboard: Dashboard }) {
   const diskLow = d.resources.diskFree < 512 * 1024 * 1024;
   const stats = d.stats;
-  return <section className="card">
-    <h2>运行状态：{d.health.healthy && !diskLow ? "健康" : "异常"}</h2>
+  return <div className="bento-grid">
+    <section className={`card health-card bento-wide${d.health.healthy && !diskLow ? "" : " unhealthy"}`}>
+    <span className="section-kicker">SYSTEM OVERVIEW</span>
+    <h2><i className={`status-dot${d.health.healthy && !diskLow ? "" : " paused"}`} /> 运行状态：{d.health.healthy && !diskLow ? "健康" : "异常"}</h2>
     <p className={d.health.healthy && !diskLow ? "muted" : "error-text"}>{d.health.reason}{diskLow ? "；磁盘可用空间不足 512 MiB" : ""}</p>
+    </section>
+    <section className="card bento-narrow"><span className="section-kicker">DAILY DELIVERY</span>
+      <div className="section-heading"><h2>每日发送</h2><span className="badge">{d.settings.paused ? "已暂停" : "自动运行"}</span></div>
+      <div className="schedule-time">{d.settings.send_time}</div>
+      <div className="schedule-meta"><span className="badge">{d.settings.timezone}</span><span className="badge">{d.settings.queue_loop ? "循环队列" : "不循环"}</span></div>
+    </section>
+    <div className="metrics bento-full">{[
+      ["照片总数", stats.photos], ["待确认", stats.unreviewed], ["待发送", stats.ready],
+      ["已提交平台", stats.submitted], ["平台确认送达", stats.provider_delivered], ["失败", stats.failed],
+      ["状态未知", stats.unknown], ["正在发送 / 等待发送", stats.pending_delivery], ["导入处理中", stats.pending_import],
+    ].map(([label, count]) => <div className="metric" key={label}><span>{label}</span><strong>{count}</strong></div>)}</div>
+    {!d.settings.paused && !stats.ready && <p className="alert error bento-full">待发送素材为 0，任务到点后无法发送。请补充并确认素材。</p>}
+    <section className="card bento-half"><span className="section-kicker">RUNTIME</span><h2>任务与通道</h2>
     <table className="admin-table"><tbody>
       <tr><th>自动发送</th><td>{d.settings.paused ? "暂停" : "启用"} · {d.settings.send_time} · {d.settings.timezone}</td></tr>
       <tr><th>队列模式</th><td>{d.settings.queue_loop ? "循环队列（保留历史，发完继续）" : "不循环（仅未使用素材）"}</td></tr>
@@ -200,16 +228,11 @@ function OperatorStatus({ dashboard: d }: { dashboard: Dashboard }) {
       <tr><th>Worker 错误码</th><td>{d.worker?.error_code || "无"}</td></tr>
       <tr><th>AI</th><td>{d.ai.provider} / {d.ai.model} · {d.aiEnabled ? "启用" : "停用"} · API Key {d.ai.keyConfigured ? "已配置" : "未配置"}</td></tr>
     </tbody></table>
-    <div className="metrics">{[
-      ["照片总数", stats.photos], ["待确认", stats.unreviewed], ["待发送", stats.ready],
-      ["已提交平台", stats.submitted], ["平台确认送达", stats.provider_delivered], ["失败", stats.failed],
-      ["状态未知", stats.unknown], ["正在发送 / 等待发送", stats.pending_delivery], ["导入处理中", stats.pending_import],
-    ].map(([label, count]) => <div className="metric" key={label}><span>{label}</span><strong>{count}</strong></div>)}</div>
-    <p className="muted">统计为数据库全量累计值，不依赖当前列表页数。已提交不等于实际收件；企业微信暂未提供本系统可用的已读确认。独立脚本的历史测试不计入这些计数。</p>
-    {!d.settings.paused && !stats.ready && <p className="alert error">待发送素材为 0，任务到点后无法发送。请补充并确认素材。</p>}
-    <ResourcePanel dashboard={d} />
     <p className="muted">状态页每 30 秒刷新。</p>
-  </section>;
+    </section>
+    <section className="card bento-half"><ResourcePanel dashboard={d} /></section>
+    <p className="muted bento-full">统计为全量累计值。平台接受不等于手机实际收件或已读；独立脚本的历史测试不计入统计。</p>
+  </div>;
 }
 
 function Letter({ snapshot, title }: { snapshot: Snapshot; title: string }) {
@@ -254,7 +277,8 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
     setWeatherLon(s.weather_lon === null ? "" : String(s.weather_lon));
   }, [s.weather_city, s.weather_lat, s.weather_lon]);
   const weatherReady = weatherLat.trim() !== "" && weatherLon.trim() !== "";
-  return <section className="card">
+  return <div className="settings-grid"><section className="card settings-schedule">
+    <span className="section-kicker">SCHEDULE</span>
     <h2>定时任务配置</h2>
     <p className="muted">每天一张，按「队列与素材」中的顺序发送。开启或修改时间后，从下一个发送时间执行；不补发过去日期。</p>
     <form className="form-grid" onSubmit={event => {
@@ -297,10 +321,11 @@ function SettingsPanel({ dashboard: d, busy, perform }: { dashboard: Dashboard; 
       <button disabled={busy}>保存设置</button>
       {feedback && <p className="wide alert" role="status">{feedback}</p>}
     </form>
-    <hr /><QueueRules enabled={s.queue_loop ?? false} busy={busy} perform={perform} />
-    <hr /><AISettingsPanel config={d.ai} busy={busy} perform={perform} />
-    <hr /><ResourcePanel dashboard={d} />
-  </section>;
+    </section>
+    <section className="card"><span className="section-kicker">QUEUE</span><QueueRules enabled={s.queue_loop ?? false} busy={busy} perform={perform} /></section>
+    <section className="card"><ResourcePanel dashboard={d} /></section>
+    <section className="card settings-ai"><span className="section-kicker">AI PROVIDER</span><AISettingsPanel config={d.ai} busy={busy} perform={perform} /></section>
+  </div>;
 }
 
 function SendHistory({ dashboard: d, busy, perform }: { dashboard: Dashboard; busy: boolean; perform: Perform }) {

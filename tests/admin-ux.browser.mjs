@@ -41,8 +41,8 @@ try {
     worker: { last_tick: new Date().toISOString(), error_code: null }, bytes: 100, quotaMb: 200,
     pushEnabled: true, pushReady: true, pushChannel: "wecom", aiEnabled: true, aiCost: "0.1", aiUnknownCost: 0,
     ai: { enabled: true, provider: "zhipu", model: "glm-5.3-flash", keyConfigured: true, source: "dashboard", currency: "CNY", inputRate: 0.8, outputRate: 2.8, monthlyLimit: 100 },
-    stats: { photos: 103, ready: 0, unreviewed: 103, submitted: 0, provider_delivered: 0, failed: 0, unknown: 0, pending_delivery: 0, pending_import: 0 },
-    resources: { processRss: 1000, containerUsage: 1000, containerLimit: 536870912, hostMemoryTotal: 1000000000, hostMemoryFree: 500000000, diskFree: 2000000000, diskTotal: 30000000000 },
+    stats: { photos: 103, ready: 28, unreviewed: 12, submitted: 64, provider_delivered: 0, failed: 0, unknown: 0, pending_delivery: 0, pending_import: 0 },
+    resources: { processRss: 160000000, containerUsage: 210000000, containerLimit: 536870912, hostMemoryTotal: 8000000000, hostMemoryFree: 4500000000, diskFree: 7500000000, diskTotal: 30000000000 },
     queue: [photos[0]], health: { healthy: true, reason: "Test worker healthy" },
   };
   let generated = 0, saved = null, lastFacts = "", lastContext = null;
@@ -114,26 +114,44 @@ try {
   assert.equal(await page.getByLabel("用户名", { exact: true }).inputValue(), "admin");
   await page.getByLabel("密码", { exact: true }).fill("SyntheticPassword123");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByRole("button", { name: "队列与素材", exact: true }).click();
+  await page.getByRole("navigation", { name: "工作区" }).waitFor();
+  const nav = page.getByRole("navigation", { name: "工作区" });
+  assert.equal(await nav.getByRole("link").count(), 5, "All five modules share one navigation, including special artwork");
+  assert.equal(await nav.getByRole("link", { name: "特殊素材", exact: true }).count(), 1);
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+  const screenshot = async name => {
+    if (process.env.BENTO_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.BENTO_SCREENSHOT_DIR}/${name}.png`, fullPage: true });
+  };
+  await screenshot("bento-overview-light");
+  await page.getByRole("button", { name: "切换到深色模式", exact: true }).click();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
+  assert.equal(await page.evaluate(() => localStorage.getItem("our-days-theme")), "dark");
+  await screenshot("bento-overview-dark");
+  await page.reload();
+  await nav.waitFor();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark", "Theme must survive a full reload");
+  await page.getByRole("button", { name: "切换到浅色模式", exact: true }).click();
+  await page.getByRole("link", { name: "队列与素材", exact: true }).click();
   await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
   const loop = page.getByRole("checkbox", { name: "循环队列：全部照片发送一轮后，从头继续" });
   assert.equal(await loop.count(), 0, "Cycling is a configuration control, not a library control");
   assert.equal(await page.locator("main > .card").first().getByRole("heading", { name: "上传素材", exact: true }).count(), 1,
     "Upload is the first material-page module");
   assert.equal(await page.locator('input[type="file"]').isVisible(), true, "Upload is expanded without any extra click");
-  await page.getByRole("button", { name: "API 与系统配置", exact: true }).click();
+  await page.getByRole("link", { name: "API 与系统配置", exact: true }).click();
   await loop.check();
   await page.getByText("循环队列已开启；自动发送开关保持不变", { exact: true }).waitFor();
   assert.equal(dashboard.settings.paused, true);
   await loop.uncheck();
   await page.getByText("循环队列已关闭；只发送未使用素材", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "队列与素材", exact: true }).click();
+  await page.getByRole("link", { name: "队列与素材", exact: true }).click();
   await page.getByText("103 张符合条件 · 每页 20 张").waitFor();
   await page.locator(".material-table").getByRole("button", { name: "置顶", exact: true }).click();
   await page.getByText("已置顶，将优先安排下一次发送", { exact: true }).waitFor();
   await page.locator(".material-table").getByRole("button", { name: "取消置顶", exact: true }).click();
   await page.getByText("已取消置顶", { exact: true }).waitFor();
   assert.equal(await page.locator(".material-table tbody tr").count(), 20);
+  await screenshot("bento-library-light");
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await page.getByRole("cell", { name: /^Synthetic 21 / }).waitFor();
   await page.getByRole("button", { name: "上一页", exact: true }).click();
@@ -185,10 +203,15 @@ try {
   assert.equal(await editor.isVisible(), true, "Rejecting discard keeps the editor");
   page.once("dialog", dialog => dialog.accept());
   await editor.getByRole("button", { name: "下一张", exact: true }).click();
-  await editor.getByLabel("拍摄时间", { exact: true }).filter({ visible: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector("dialog .editor-fields input")?.value === "Synthetic 2");
   assert.equal(await editor.getByLabel("拍摄时间", { exact: true }).inputValue(), "Synthetic 2");
   await editor.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("button", { name: "API 与系统配置", exact: true }).click();
+  await page.getByRole("link", { name: "API 与系统配置", exact: true }).click();
+  await screenshot("bento-settings-light");
+  assert.equal(new URL(page.url()).searchParams.get("view"), "settings");
+  await page.reload();
+  await page.getByRole("heading", { name: "定时任务配置", exact: true }).waitFor();
+  assert.equal(await nav.getByRole("link", { name: "API 与系统配置", exact: true }).getAttribute("aria-current"), "page");
   await page.getByText("GLM-5.3-Flash · 已内置", { exact: true }).waitFor();
   assert.equal(await page.getByRole("checkbox", { name: /费用限额/ }).count(), 0);
   assert.equal(await page.getByLabel(/输入单价/).count(), 0);
@@ -202,14 +225,34 @@ try {
   await page.getByPlaceholder("湖州示例：120.0933", { exact: true }).fill("");
   await page.getByRole("status").filter({ hasText: "只保存城市名不会启用天气" }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "队列与素材", exact: true }).click();
+  await page.getByRole("link", { name: "队列与素材", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).first().click();
   await editor.waitFor();
   const geometry = await editor.evaluate(node => ({ width: node.getBoundingClientRect().width, scroll: node.scrollWidth, client: node.clientWidth }));
   assert.ok(geometry.width <= 390 && geometry.scroll <= geometry.client + 1, "Mobile editor must not overflow horizontally");
+  assert.equal(await editor.evaluate(node => Math.round(node.getBoundingClientRect().top)), 0, "Mobile editor starts at the top of the viewport");
   if (process.env.UX_SCREENSHOT_PATH) await page.screenshot({ path: process.env.UX_SCREENSHOT_PATH });
-  await page.goto(`${origin}/our-days/special`);
+  if (process.env.BENTO_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.BENTO_SCREENSHOT_DIR}/bento-editor-mobile.png` });
+  await editor.getByRole("button", { name: "关闭", exact: true }).click();
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const name of ["运行状态", "API 与系统配置", "队列与素材"]) {
+      await nav.getByRole("link", { name, exact: true }).click();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        `Page ${name} must not overflow at ${width}px`);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await nav.getByRole("link", { name: "运行状态", exact: true }).click();
+  await page.getByRole("button", { name: "切换到深色模式", exact: true }).click();
+  await screenshot("bento-overview-mobile-dark");
+  await nav.getByRole("link", { name: "特殊素材", exact: true }).click();
   await page.getByRole("heading", { name: "上传特殊素材", exact: true }).waitFor();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark", "Theme persists across special-material navigation");
+  assert.equal(await nav.getByRole("link", { name: "特殊素材", exact: true }).getAttribute("aria-current"), "page");
+  await screenshot("bento-special-mobile-dark");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await screenshot("bento-special-dark");
   await page.getByLabel("素材名称", { exact: true }).fill("Synthetic birthday artwork");
   await page.getByLabel("选择成品图片", { exact: true }).setInputFiles({
     name: "birthday.png", mimeType: "image/png",
@@ -232,8 +275,23 @@ try {
   await page.getByRole("button", { name: "保存密码", exact: true }).click();
   await page.getByRole("link", { name: "前往登录并管理照片" }).waitFor();
   assert.equal(passwordSet, true);
+  const systemContext = await browser.newContext({ colorScheme: "dark", viewport: { width: 390, height: 844 } });
+  const systemPage = await systemContext.newPage();
+  await systemPage.route("**/our-days/api/session", route => route.fulfill({ json: { role: null } }));
+  await systemPage.goto(`${origin}/our-days`);
+  await systemPage.getByRole("heading", { name: "管理员登录", exact: true }).waitFor();
+  assert.equal(await systemPage.locator("html").getAttribute("data-theme"), "dark", "First visit follows dark OS setting");
+  await systemPage.emulateMedia({ colorScheme: "light" });
+  await systemPage.waitForFunction(() => document.documentElement.dataset.theme === "light");
+  await systemPage.getByRole("button", { name: "切换到深色模式" }).click();
+  await systemPage.emulateMedia({ colorScheme: "dark" });
+  await systemPage.emulateMedia({ colorScheme: "light" });
+  assert.equal(await systemPage.locator("html").getAttribute("data-theme"), "dark", "Explicit user preference takes precedence over OS");
+  await systemPage.getByRole("button", { name: "收信人入口", exact: true }).click();
+  await systemPage.getByLabel("收信人配对码", { exact: true }).waitFor();
+  await systemContext.close();
   assert.deepEqual(errors, []);
-  console.log("Admin UX browser checks passed: 103-photo pagination/search, focused mobile editor, current-facts AI progress/autofill/undo/failure, explicit save/approval, unsaved guards, fixed GLM prices and cap.");
+  console.log("Bento admin browser checks passed: five equal navigation items, persistent light/dark themes, settings deep links, responsive 390/768/1024/1440 layouts, 103-photo pagination/search, pin/cycle controls, AI draft flows, special uploads and password setup.");
 } finally {
   await browser?.close();
   server.kill("SIGTERM");

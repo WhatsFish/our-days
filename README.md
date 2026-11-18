@@ -49,8 +49,16 @@ with optional WeChat notification. No personal content is included in this repos
 
 ## Runtime
 
-The administrator UI is an operator console with four destinations:
-**运行状态**, **队列与素材**, **发送记录**, **API 与系统配置**.
+The administrator UI uses a responsive Bento workspace with five equal navigation
+destinations: **运行状态**, **队列与素材**, **特殊素材**, **发送记录**,
+**API 与系统配置**. The special-material deep link remains `/our-days/special`;
+other sections support `?view=status|library|history|settings` and browser history.
+Desktop navigation is a sidebar; narrow screens use a scrollable top navigation.
+All browser pages, login, password setup and photo editors share semantic
+light/dark color tokens. The appearance button follows system preference on first
+use and stores an explicit choice in `localStorage` (`our-days-theme`) afterward.
+The initial head script applies that choice before paint; cross-tab theme changes
+stay in sync. Theme settings do not alter outgoing instant-photo JPEGs.
 It defaults to health/counters/resources, not the reader archive. Decorative
 copy and reader disclaimers are excluded from administrator pages. Health
 requires a successful worker tick within five minutes, not just HTTP liveness.

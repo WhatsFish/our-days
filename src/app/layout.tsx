@@ -14,7 +14,9 @@ export const metadata: Metadata = {
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const src = process.env.NEXT_PUBLIC_UMAMI_SRC, id = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
-  return <html lang="zh-CN"><body>
+  return <html lang="zh-CN" suppressHydrationWarning><head>
+    <script dangerouslySetInnerHTML={{ __html: `(function(){var t;try{t=localStorage.getItem('our-days-theme')}catch(e){}document.documentElement.dataset.theme=t==='dark'||t==='light'?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'})()` }} />
+  </head><body>
     {children}
     {src && id && <Script src={src} data-website-id={id} data-auto-track="false" strategy="afterInteractive" />}
   </body></html>;
